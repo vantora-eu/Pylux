@@ -7,23 +7,32 @@ type BridgeEvents = {
 };
 
 type StreamProfile = { video: '720p' | '1080p'; fps: 30 | 60; hdr: boolean };
+export type ControllerState = {
+  b: number;
+  lx: number;
+  ly: number;
+  rx: number;
+  ry: number;
+  l2: number;
+  r2: number;
+};
 type SignalMessage =
   | { type: 'offer'; sdp: RTCSessionDescriptionInit }
   | { type: 'ice'; candidate: RTCIceCandidateInit }
+  | { type: 'state'; state: BridgeState }
   | { type: 'error'; message: string };
 
 /** Browser-side half of the Pylux WebRTC bridge protocol. */
 export class PyluxBridge {
   private socket?: WebSocket;
   private peer?: RTCPeerConnection;
+  private input?: RTCDataChannel;
 
   constructor(private readonly endpoint: string, private readonly events: BridgeEvents) {}
 
-  async connect(profile: StreamProfile) {
+  async connect(profile: StreamProfile, pairCode: string) {
     this.events.onStateChange('connecting');
     this.peer = new RTCPeerConnection({ iceServers: [] });
-    this.peer.addTransceiver('video', { direction: 'recvonly' });
-    this.peer.addTransceiver('audio', { direction: 'recvonly' });
     const media = new MediaStream();
     this.peer.ontrack = ({ track }) => {
       media.addTrack(track);
@@ -32,6 +41,9 @@ export class PyluxBridge {
     };
     this.peer.onicecandidate = ({ candidate }) => {
       if (candidate) this.send({ type: 'ice', candidate: candidate.toJSON() });
+    };
+    this.peer.ondatachannel = ({ channel }) => {
+      if (channel.label === 'pylux-input') this.input = channel;
     };
     this.peer.onconnectionstatechange = () => {
       if (this.peer?.connectionState === 'failed') {
@@ -42,7 +54,7 @@ export class PyluxBridge {
     await new Promise<void>((resolve, reject) => {
       const socket = new WebSocket(this.endpoint);
       this.socket = socket;
-      socket.onopen = () => { this.send({ type: 'start', profile }); resolve(); };
+      socket.onopen = () => { this.send({ type: 'start', profile, pairCode }); resolve(); };
       socket.onerror = () => reject(new Error('De Pylux Bridge is niet bereikbaar.'));
       socket.onmessage = (event) => void this.handleMessage(event.data);
       socket.onclose = () => {
@@ -51,13 +63,19 @@ export class PyluxBridge {
     });
   }
 
-  sendInput(control: string, value: number) { this.send({ type: 'input', control, value }); }
+  sendControllerState(state: ControllerState) {
+    if (this.input?.readyState === 'open' && this.input.bufferedAmount < 4096) {
+      this.input.send(JSON.stringify(state));
+    }
+  }
 
   disconnect() {
     this.send({ type: 'stop' });
     this.socket?.close();
+    this.input?.close();
     this.peer?.close();
     this.socket = undefined;
+    this.input = undefined;
     this.peer = undefined;
     this.events.onStateChange('idle');
   }
@@ -77,6 +95,8 @@ export class PyluxBridge {
       }
     } else if (message.type === 'ice') {
       await this.peer?.addIceCandidate(message.candidate);
+    } else if (message.type === 'state') {
+      this.events.onStateChange(message.state);
     } else if (message.type === 'error') {
       this.events.onStateChange('error');
       this.events.onError(message.message);

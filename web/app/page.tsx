@@ -19,6 +19,17 @@ function StatusDot({ state }: { state: SessionState }) {
   return <span className={`status-dot status-${state}`} aria-hidden="true" />;
 }
 
+function gamepadButtonMask(pad: Gamepad) {
+  const mapping: Array<[number, number]> = [
+    [0, 0], [1, 1], [2, 2], [3, 3], [12, 6], [13, 7], [14, 4], [15, 5],
+    [4, 8], [5, 9], [10, 10], [11, 11], [9, 12], [8, 13], [16, 15],
+  ];
+  return mapping.reduce((mask, [button, bit]) => pad.buttons[button]?.pressed ? mask | (1 << bit) : mask, 0);
+}
+
+const axis = (value = 0) => Math.max(-32768, Math.min(32767, Math.round(value * 32767)));
+const trigger = (value = 0) => Math.max(0, Math.min(255, Math.round(value * 255)));
+
 export default function HomePage() {
   const [sessionState, setSessionState] = useState<SessionState>('idle');
   const [showControls, setShowControls] = useState(false);
@@ -51,6 +62,24 @@ export default function HomePage() {
 
   useEffect(() => () => bridgeRef.current?.disconnect(), []);
 
+  useEffect(() => {
+    let animationFrame = 0;
+    const forwardController = () => {
+      const pad = navigator.getGamepads?.().find(Boolean);
+      if (pad && bridgeRef.current) {
+        bridgeRef.current.sendControllerState({
+          b: gamepadButtonMask(pad),
+          lx: axis(pad.axes[0]), ly: axis(pad.axes[1]),
+          rx: axis(pad.axes[2]), ry: axis(pad.axes[3]),
+          l2: trigger(pad.buttons[6]?.value), r2: trigger(pad.buttons[7]?.value),
+        });
+      }
+      animationFrame = window.requestAnimationFrame(forwardController);
+    };
+    animationFrame = window.requestAnimationFrame(forwardController);
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, []);
+
   const startSession = useCallback(async () => {
     setError('');
     const endpoint = process.env.NEXT_PUBLIC_PYLUX_BRIDGE_URL;
@@ -60,13 +89,17 @@ export default function HomePage() {
       return;
     }
     try {
+      const savedCode = window.sessionStorage.getItem('pylux-pair-code') ?? '';
+      const pairCode = savedCode || window.prompt('Voer de koppelcode van de Pylux Bridge in:') || '';
+      if (!pairCode) throw new Error('Er is geen koppelcode ingevoerd.');
+      window.sessionStorage.setItem('pylux-pair-code', pairCode);
       const bridge = new PyluxBridge(endpoint, {
         onStateChange: setSessionState,
         onStream: (stream) => { if (videoRef.current) videoRef.current.srcObject = stream; },
         onError: setError,
       });
       bridgeRef.current = bridge;
-      await bridge.connect({ video: '1080p', fps: 60, hdr: false });
+      await bridge.connect({ video: '1080p', fps: 60, hdr: false }, pairCode);
     } catch (cause) {
       setSessionState('error');
       setError(cause instanceof Error ? cause.message : 'De Pylux Bridge reageert niet.');

@@ -36,6 +36,7 @@ endmacro()
 
 option(CHIAKI_ENABLE_TESTS "Enable tests for Chiaki" ON)
 option(CHIAKI_ENABLE_CLI "Enable CLI for Chiaki" ON)
+option(CHIAKI_ENABLE_WEB_BRIDGE "Build the low-latency WebRTC bridge" OFF)
 option(CHIAKI_ENABLE_GUI "Enable Qt GUI" ON)
 option(CHIAKI_ENABLE_ANDROID "Enable Android (Use only as part of the Gradle Project)" OFF)
 option(CHIAKI_ENABLE_IOS "Enable iOS build (lib only, use from ios/ folder)" OFF)
@@ -281,6 +282,10 @@ else()
 endif()
 
 add_subdirectory(lib)
+
+if(CHIAKI_ENABLE_WEB_BRIDGE)
+	add_subdirectory(web-bridge)
+endif()
 
 if(CHIAKI_ENABLE_CLI)
 	add_subdirectory(cli)

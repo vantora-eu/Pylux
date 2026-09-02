@@ -132,6 +132,7 @@ if(CHIAKI_LIB_ENABLE_OPUS)
 endif()
 
 add_library(chiaki-lib ${HEADER_FILES} ${SOURCE_FILES} ${CHIAKI_LIB_PROTO_SOURCE_FILES} ${CHIAKI_LIB_PROTO_HEADER_FILES})
+add_library(Chiaki::lib ALIAS chiaki-lib)
 configure_file(config.h.in include/chiaki/config.h)
 target_include_directories(chiaki-lib PUBLIC "${CMAKE_CURRENT_BINARY_DIR}/include")
 # Expose protobuf include directory so targets linking to chiaki-lib can use takion.pb.h
