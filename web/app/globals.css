@@ -1,0 +1,219 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn/tailwind.css';
+
+:root {
+  --ink: #f7f9fb;
+  --muted: #9ba4af;
+  --panel: #15191f;
+  --panel-2: #1c2128;
+  --line: rgba(255, 255, 255, 0.1);
+  --cyan: #18c8ef;
+  --cyan-soft: rgba(24, 200, 239, 0.14);
+  --green: #48df9b;
+  --danger: #ff746f;
+  --radius: 26px;
+}
+
+* { box-sizing: border-box; }
+html { background: #090b0e; color-scheme: dark; }
+body {
+  margin: 0;
+  background: #090b0e;
+  color: var(--ink);
+  font-family: var(--font-geist-sans), -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  overscroll-behavior: none;
+}
+button { color: inherit; font: inherit; -webkit-tap-highlight-color: transparent; }
+button:focus-visible { outline: 3px solid var(--cyan); outline-offset: 3px; }
+
+.tesla-shell {
+  width: 100vw;
+  min-height: 100vh;
+  max-height: 1200px;
+  overflow: hidden;
+  background: #090b0e;
+  position: relative;
+}
+
+.topbar {
+  height: 102px;
+  padding: 0 42px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--line);
+  background: rgba(9, 11, 14, 0.96);
+}
+
+.brand-block, .top-status, .top-status span, .metric-heading span, .section-kicker,
+.gamepad-card, .quick-actions button, .dock button, .control-hints, .control-hints div,
+.launch-button, .quality-pill, .stop-button { display: flex; align-items: center; }
+
+.brand-block { gap: 16px; }
+.brand-logo { width: 54px; height: 54px; object-fit: contain; border-radius: 12px; }
+.brand-block h1 { font-size: 23px; margin: 1px 0 0; font-weight: 620; letter-spacing: -0.45px; }
+.eyebrow {
+  margin: 0;
+  color: var(--cyan);
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 1.8px;
+}
+
+.top-status { gap: 30px; font-size: 16px; color: #d6dbe0; }
+.top-status span { gap: 9px; }
+.top-status .vehicle-mode { color: var(--green); }
+.clock { font-variant-numeric: tabular-nums; font-weight: 650; font-size: 20px; }
+.icon-button, .floating-button, .more-button, .sheet-close {
+  width: 58px; height: 58px; border-radius: 18px; border: 1px solid var(--line);
+  background: var(--panel); display: grid; place-items: center; cursor: pointer;
+}
+
+.workspace {
+  height: calc(100vh - 240px);
+  max-height: 960px;
+  min-height: 660px;
+  padding: 26px 36px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 430px;
+  gap: 26px;
+}
+
+.stream-panel {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 32px;
+  background: #0d1117;
+  box-shadow: 0 22px 80px rgba(0, 0, 0, 0.38);
+}
+.stream-poster, .remote-video, .stream-shade { position: absolute; inset: 0; width: 100%; height: 100%; }
+.stream-poster { object-fit: cover; opacity: 0.54; filter: saturate(0.82) contrast(1.06); transform: scale(1.02); }
+.remote-video { object-fit: contain; z-index: 1; background: transparent; }
+.stream-shade {
+  z-index: 2;
+  background: linear-gradient(90deg, rgba(5, 8, 11, 0.94) 0%, rgba(5, 8, 11, 0.62) 43%, rgba(5, 8, 11, 0.08) 100%);
+}
+.stream-panel.is-active .stream-shade { background: linear-gradient(0deg, rgba(4, 7, 10, 0.84) 0%, transparent 34%); }
+.stream-panel.is-active .stream-poster { opacity: 0.9; filter: saturate(1); }
+.stream-topline { position: absolute; z-index: 4; top: 26px; left: 28px; right: 28px; display: flex; justify-content: space-between; }
+.quality-pill { gap: 9px; padding: 12px 17px; border-radius: 999px; background: rgba(4, 7, 10, 0.76); backdrop-filter: blur(12px); color: #d8dee5; font-size: 14px; border: 1px solid var(--line); }
+.floating-button { width: 54px; height: 54px; background: rgba(4, 7, 10, 0.76); backdrop-filter: blur(12px); }
+
+.launch-copy { position: absolute; z-index: 4; top: 50%; left: 66px; width: 530px; transform: translateY(-47%); }
+.launch-copy h2 { margin: 17px 0 20px; font-size: clamp(48px, 4vw, 70px); line-height: 0.99; letter-spacing: -3.4px; font-weight: 650; }
+.launch-copy > p:not(.eyebrow):not(.error-message) { width: 480px; color: #c0c7ce; font-size: 19px; line-height: 1.5; margin: 0 0 32px; }
+.launch-button {
+  gap: 13px; min-height: 70px; border: 0; border-radius: 19px; padding: 0 28px;
+  background: var(--cyan); color: #041216; font-size: 18px; font-weight: 750; cursor: pointer;
+  box-shadow: 0 10px 34px rgba(24, 200, 239, 0.25);
+}
+.launch-button:disabled { opacity: 0.7; cursor: progress; }
+.error-message { color: #ffaca8; font-size: 15px; margin-top: 16px; }
+.session-overlay { position: absolute; z-index: 4; left: 32px; right: 32px; bottom: 30px; display: flex; justify-content: space-between; align-items: end; }
+.session-overlay h2 { font-size: 36px; margin: 8px 0 0; letter-spacing: -1.5px; }
+.demo-badge { border: 1px solid rgba(255,255,255,.18); background: rgba(5,8,11,.76); padding: 11px 15px; border-radius: 999px; font-size: 13px; color: #c8d0d8; }
+
+.side-panel { display: flex; min-height: 0; flex-direction: column; gap: 16px; }
+.console-card, .connection-card, .gamepad-card {
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); position: relative;
+}
+.console-card { min-height: 206px; overflow: hidden; padding: 30px 27px; display: flex; align-items: end; }
+.console-info { position: relative; z-index: 2; }
+.console-info h2 { margin: 8px 0 6px; font-size: 27px; letter-spacing: -0.8px; }
+.console-info p { margin: 0; color: var(--muted); font-size: 14px; }
+.section-kicker { gap: 9px; color: #cbd2d9; text-transform: uppercase; letter-spacing: 1.1px; font-size: 11px; font-weight: 720; }
+.status-dot { width: 9px; height: 9px; border-radius: 999px; background: #7e8792; }
+.status-connecting { background: #ffd36a; box-shadow: 0 0 16px #ffd36a; }
+.status-streaming, .status-demo { background: var(--green); box-shadow: 0 0 16px var(--green); }
+.status-error { background: var(--danger); }
+.more-button { position: absolute; z-index: 3; right: 19px; top: 19px; width: 50px; height: 50px; background: rgba(255,255,255,.05); }
+.console-visual { position: absolute; width: 150px; height: 190px; right: 28px; bottom: -42px; opacity: .7; }
+.console-spine { position: absolute; left: 67px; top: 5px; width: 20px; height: 168px; border-radius: 8px; background: #141921; box-shadow: inset 3px 0 0 var(--cyan); transform: rotate(2deg); }
+.console-wing { position: absolute; top: 0; height: 170px; width: 61px; background: #e9eef4; }
+.console-wing.left { left: 11px; border-radius: 50% 18% 35% 52%; transform: rotate(6deg); }
+.console-wing.right { right: 7px; border-radius: 18% 50% 52% 35%; transform: rotate(-6deg); }
+
+.connection-card { padding: 24px 26px 22px; }
+.metric-heading { display: flex; align-items: center; justify-content: space-between; font-size: 14px; }
+.metric-heading span { gap: 9px; color: #d6dde4; }
+.metric-heading strong { color: var(--green); font-size: 13px; }
+.signal-bars { height: 56px; margin: 24px 0 20px; display: flex; gap: 8px; align-items: end; }
+.signal-bars span { flex: 1; border-radius: 5px; background: var(--cyan); opacity: .88; }
+.metrics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.metrics div { display: flex; flex-direction: column; gap: 5px; }
+.metrics span { color: var(--muted); font-size: 11px; }
+.metrics strong { font-size: 14px; font-variant-numeric: tabular-nums; }
+
+.gamepad-card { width: 100%; min-height: 90px; padding: 16px 19px; gap: 15px; text-align: left; cursor: pointer; }
+.gamepad-card > span:nth-child(2) { flex: 1; display: flex; flex-direction: column; gap: 5px; }
+.gamepad-card small { color: var(--muted); font-size: 12px; }
+.gamepad-icon { width: 56px; height: 56px; border-radius: 17px; background: var(--cyan-soft); color: var(--cyan); display: grid; place-items: center; }
+.gamepad-card.connected { border-color: rgba(72,223,155,.45); }
+.gamepad-card.connected .gamepad-icon { color: var(--green); background: rgba(72,223,155,.12); }
+.quick-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.quick-actions button { min-height: 82px; flex-direction: column; justify-content: center; gap: 8px; border: 1px solid var(--line); border-radius: 20px; background: var(--panel); cursor: pointer; }
+.quick-actions button span { font-size: 11px; color: var(--muted); }
+.quick-actions button.selected { color: var(--cyan); border-color: rgba(24,200,239,.45); }
+.stop-button { gap: 9px; justify-content: center; margin-top: auto; width: 100%; min-height: 60px; border: 1px solid rgba(255,116,111,.35); color: #ffaba7; background: rgba(255,116,111,.08); border-radius: 18px; cursor: pointer; }
+
+.dock {
+  height: 138px; border-top: 1px solid var(--line); background: #0c0f13;
+  padding: 18px 36px 24px; display: grid; grid-template-columns: 210px 1fr 180px; align-items: center; gap: 30px;
+}
+.dock button { height: 70px; justify-content: center; gap: 10px; border: 1px solid var(--line); border-radius: 21px; background: var(--panel); cursor: pointer; }
+.dock button span { font-size: 14px; }
+.dock button.active { color: var(--cyan); border-color: rgba(24,200,239,.42); background: var(--cyan-soft); }
+.control-hints { justify-content: center; gap: clamp(22px, 3vw, 62px); }
+.control-hints div { gap: 9px; color: var(--muted); font-size: 12px; }
+kbd { min-width: 42px; height: 32px; padding: 0 8px; border: 1px solid rgba(255,255,255,.15); border-radius: 9px; display: grid; place-items: center; color: #d9e0e7; background: #20252c; font: 700 11px var(--font-geist-mono), monospace; box-shadow: inset 0 -2px 0 rgba(0,0,0,.35); }
+
+.control-sheet {
+  position: fixed; z-index: 10; left: 50%; bottom: 48px; width: min(780px, calc(100vw - 60px)); transform: translateX(-50%);
+  padding: 38px; border: 1px solid rgba(255,255,255,.16); border-radius: 30px; background: #1a1f26; box-shadow: 0 30px 110px rgba(0,0,0,.7);
+}
+.control-sheet h2 { font-size: 32px; margin: 11px 0 26px; letter-spacing: -1px; }
+.sheet-close { position: absolute; right: 20px; top: 20px; cursor: pointer; }
+.control-options { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.control-options div { min-height: 160px; border: 1px solid var(--line); border-radius: 22px; padding: 23px; display: grid; grid-template-columns: 34px 1fr; align-content: start; gap: 7px 12px; background: rgba(255,255,255,.025); }
+.control-options div > svg { color: var(--cyan); grid-row: 1 / span 2; }
+.control-options span { color: var(--muted); line-height: 1.45; font-size: 13px; }
+
+@media (max-width: 1300px) {
+  .workspace { grid-template-columns: minmax(0, 1fr) 360px; padding-inline: 24px; }
+  .launch-copy { left: 42px; }
+  .launch-copy h2 { font-size: 52px; }
+  .control-hints { gap: 18px; }
+  .control-hints div span { display: none; }
+}
+
+@media (max-width: 900px), (max-height: 720px) {
+  .tesla-shell { overflow: auto; max-height: none; }
+  .topbar { padding-inline: 20px; }
+  .top-status .vehicle-mode, .top-status > span:nth-child(2) { display: none; }
+  .workspace { height: auto; min-height: 0; grid-template-columns: 1fr; padding: 16px; }
+  .stream-panel { min-height: 560px; }
+  .side-panel { display: grid; grid-template-columns: 1fr 1fr; }
+  .quick-actions, .stop-button { grid-column: 1 / -1; }
+  .dock { position: sticky; bottom: 0; grid-template-columns: 1fr 1fr; height: 100px; padding: 12px 16px; z-index: 6; }
+  .control-hints { display: none; }
+}
+
+@media (max-width: 600px) {
+  .brand-block h1 { font-size: 17px; }
+  .brand-logo { width: 44px; height: 44px; }
+  .clock { font-size: 17px; }
+  .icon-button { display: none; }
+  .stream-panel { min-height: 520px; }
+  .launch-copy { left: 28px; right: 28px; width: auto; }
+  .launch-copy h2 { font-size: 43px; letter-spacing: -2px; }
+  .launch-copy > p:not(.eyebrow):not(.error-message) { width: auto; font-size: 16px; }
+  .side-panel { display: flex; }
+  .control-options { grid-template-columns: 1fr; }
+}
+
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; } }

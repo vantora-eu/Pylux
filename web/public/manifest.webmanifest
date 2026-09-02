@@ -1,0 +1,10 @@
+{
+  "name": "Pylux Tesla Remote Play",
+  "short_name": "Pylux",
+  "description": "Touch-first Remote Play voor de Tesla-browser",
+  "start_url": "/",
+  "display": "fullscreen",
+  "background_color": "#090b0e",
+  "theme_color": "#090b0e",
+  "orientation": "landscape"
+}

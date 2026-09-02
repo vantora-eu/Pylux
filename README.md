@@ -37,6 +37,13 @@ For full release notes and all downloads see the [Releases page](https://github.
 - **Automatic console discovery and registration**
 - **Touch-friendly controls** — mobile-optimized UI for phones and tablets
 
+## Tesla Web preview
+
+The `web/` directory contains a 1920×1200, touch-first Tesla browser interface and the
+browser-side WebRTC bridge adapter. It runs in a clearly marked interface demo when no bridge
+endpoint is configured. See [`web/README.md`](web/README.md) for local setup and the boundary
+between the browser and Pylux's native Remote Play engine.
+
 ## Documentation
 
 Full setup guides, configuration, and controller options at **[forward-technologies-llc.github.io/Pylux](https://forward-technologies-llc.github.io/Pylux/)**.
