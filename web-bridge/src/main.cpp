@@ -14,6 +14,8 @@
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
+#include <cstdio>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -24,6 +26,8 @@
 
 #if defined(__APPLE__)
 #include <Security/Security.h>
+#else
+#include <sys/stat.h>
 #endif
 
 using json = nlohmann::json;
@@ -54,7 +58,16 @@ std::string load_secure_npsso()
 	SecKeychainItemFreeContent(nullptr, data);
 	return token;
 #else
-	return {};
+	const char *path = std::getenv("PYLUX_NPSSO_FILE");
+	if(!path || !*path)
+		return {};
+	std::ifstream input(path, std::ios::binary);
+	if(!input)
+		return {};
+	std::string token((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+	while(!token.empty() && (token.back() == '\n' || token.back() == '\r'))
+		token.pop_back();
+	return token;
 #endif
 }
 
@@ -88,8 +101,24 @@ void store_secure_npsso(const std::string &token)
 	if(status != errSecSuccess)
 		throw std::runtime_error("Could not save NPSSO in macOS Keychain");
 #else
-	(void)token;
-	throw std::runtime_error("Secure token storage is not available on this platform");
+	const char *path = std::getenv("PYLUX_NPSSO_FILE");
+	if(!path || !*path)
+		throw std::runtime_error("PYLUX_NPSSO_FILE is required for secure token storage");
+	const std::string temporary = std::string(path) + ".tmp";
+	{
+		std::ofstream output(temporary, std::ios::binary | std::ios::trunc);
+		if(!output)
+			throw std::runtime_error("Could not open secure NPSSO storage");
+		output.write(token.data(), static_cast<std::streamsize>(token.size()));
+		if(!output)
+			throw std::runtime_error("Could not write secure NPSSO storage");
+	}
+	if(chmod(temporary.c_str(), S_IRUSR | S_IWUSR) != 0
+		|| std::rename(temporary.c_str(), path) != 0)
+	{
+		std::remove(temporary.c_str());
+		throw std::runtime_error("Could not protect secure NPSSO storage");
+	}
 #endif
 }
 

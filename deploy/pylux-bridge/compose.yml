@@ -1,0 +1,21 @@
+services:
+  pylux-bridge:
+    build:
+      context: ../..
+      dockerfile: deploy/pylux-bridge/Dockerfile
+    image: pylux-web-bridge:local
+    container_name: pylux-web-bridge
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      PYLUX_BRIDGE_BIND: 0.0.0.0
+      PYLUX_BRIDGE_PORT: "8080"
+      PYLUX_PAIR_CODE: ${PYLUX_PAIR_CODE}
+      PYLUX_CLOUD_LOCALE: nl-NL
+      PYLUX_CLOUD_CACHE_DIR: /var/lib/pylux/catalog
+      PYLUX_NPSSO_FILE: /var/lib/pylux/secrets/npsso
+      PYLUX_ICE_SERVERS: stun:stun.cloudflare.com:3478
+    volumes:
+      - /srv/pylux/data:/var/lib/pylux
+    mem_limit: 768m
+    cpus: 1.25

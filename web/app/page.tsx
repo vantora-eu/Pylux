@@ -35,6 +35,23 @@ function gamepadButtonMask(pad: Gamepad) {
 const axis = (value = 0) => Math.max(-32768, Math.min(32767, Math.round(value * 32767)));
 const trigger = (value = 0) => Math.max(0, Math.min(255, Math.round(value * 255)));
 
+const isHostedPlayPage = () => typeof window !== 'undefined'
+  && window.location.hostname.endsWith('optifysolutions.nl');
+
+const initialBridgeUrl = () => {
+  if (typeof window === 'undefined') return 'ws://127.0.0.1:8080';
+  return window.localStorage.getItem('pylux.bridgeUrl')
+    || (isHostedPlayPage() ? 'wss://bridge.optifysolutions.nl' : 'ws://127.0.0.1:8080');
+};
+
+const initialPairCode = () => {
+  if (typeof window === 'undefined') return 'pylux-tesla';
+  return window.localStorage.getItem('pylux.pairCode')
+    || (isHostedPlayPage() ? '' : 'pylux-tesla');
+};
+
+const assetUrl = (filename: string) => isHostedPlayPage() ? `/play/${filename}` : `/${filename}`;
+
 export default function HomePage() {
   const [sessionState, setSessionState] = useState<SessionState>('idle');
   const [showControls, setShowControls] = useState(false);
@@ -52,8 +69,8 @@ export default function HomePage() {
   const [wizardStep, setWizardStep] = useState(1);
   const [npsso, setNpsso] = useState('');
   const [showToken, setShowToken] = useState(false);
-  const [bridgeUrl, setBridgeUrl] = useState('ws://127.0.0.1:8080');
-  const [pairCode, setPairCode] = useState('pylux-tesla');
+  const [bridgeUrl, setBridgeUrl] = useState(initialBridgeUrl);
+  const [pairCode, setPairCode] = useState(initialPairCode);
   const [setupError, setSetupError] = useState('');
   const [gameQuery, setGameQuery] = useState('');
   const [gameFilter, setGameFilter] = useState<'all' | 'owned'>('all');
@@ -89,6 +106,12 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => () => bridgeRef.current?.disconnect(), []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('pylux.bridgeUrl', bridgeUrl);
+    if (pairCode) window.localStorage.setItem('pylux.pairCode', pairCode);
+  }, [bridgeUrl, pairCode]);
 
   useEffect(() => {
     let animationFrame = 0;
@@ -256,7 +279,7 @@ export default function HomePage() {
       <header className="topbar">
         <div className="brand-block">
           {/* oxlint-disable-next-line next/no-img-element */}
-          <img src="/pylux-mark.png" alt="Pylux" className="brand-logo" width={54} height={54} />
+          <img src={assetUrl('pylux-mark.png')} alt="Pylux" className="brand-logo" width={54} height={54} />
           <div><p className="eyebrow">Pylux</p><h1>PlayStation Plus voor Tesla</h1></div>
         </div>
         <div className="top-status" aria-label="Systeemstatus">
@@ -269,9 +292,9 @@ export default function HomePage() {
       <section className="workspace">
         <article ref={streamPanelRef} className={`stream-panel ${active ? 'is-active' : ''} ${fullscreenFallback ? 'fullscreen-fallback' : ''}`}>
           {/* oxlint-disable-next-line next/no-img-element */}
-          <img className="stream-poster" src="/pylux-home.jpg" alt="Pylux PlayStation-startscherm" />
+          <img className="stream-poster" src={assetUrl('pylux-home.jpg')} alt="Pylux PlayStation-startscherm" />
           <video ref={videoRef} autoPlay playsInline muted={muted} className="remote-video">
-            <track kind="captions" src="/empty.vtt" srcLang="nl" label="Nederlands" />
+            <track kind="captions" src={assetUrl('empty.vtt')} srcLang="nl" label="Nederlands" />
           </video>
           <div className="stream-shade" />
           <div className="stream-topline">
@@ -415,7 +438,7 @@ export default function HomePage() {
             {visibleGames.map((game) => (
               <button key={game.productId} className="game-tile" onClick={() => launchGame(game)}>
                 {/* oxlint-disable-next-line next/no-img-element */}
-                <img src={game.imageUrl || game.landscapeImageUrl || '/pylux-home.jpg'} alt="" loading="lazy" />
+                <img src={game.imageUrl || game.landscapeImageUrl || assetUrl('pylux-home.jpg')} alt="" loading="lazy" />
                 <span><strong>{game.name}</strong><small>{game.platform.toUpperCase()} · {game.isOwned ? 'In bibliotheek' : 'PS Plus'}</small></span>
               </button>
             ))}
@@ -447,9 +470,9 @@ export default function HomePage() {
               <span className="wizard-icon"><ShieldCheck size={38} /></span>
               <p className="eyebrow">Eenmalige installatie</p>
               <h2 id="setup-title">Koppel PlayStation Plus</h2>
-              <p className="wizard-lead">Je NPSSO-token wordt door de lokale Pylux Bridge veilig bewaard in macOS Sleutelhanger. De webpagina zelf bewaart het token niet.</p>
+              <p className="wizard-lead">Je NPSSO-token wordt door de Pylux Bridge veilig op de gekoppelde server bewaard. De webpagina zelf bewaart het token niet.</p>
               <div className="privacy-points">
-                <div><LockKeyhole /><span><strong>Veilig bewaard</strong><small>Versleuteld in macOS Sleutelhanger</small></span></div>
+                <div><LockKeyhole /><span><strong>Veilig bewaard</strong><small>Alleen toegankelijk voor de Pylux Bridge</small></span></div>
                 <div><Gamepad2 /><span><strong>Geen console nodig</strong><small>Voor Plus Premium-cloudgames</small></span></div>
               </div>
               <button className="wizard-primary" onClick={() => void connectSavedAccount()}>Opgeslagen account gebruiken</button>
@@ -470,7 +493,7 @@ export default function HomePage() {
                 <input id="npsso" type={showToken ? 'text' : 'password'} value={npsso} onChange={(event) => { setNpsso(event.target.value); setSetupError(''); }} placeholder="Plak je token hier" autoComplete="off" autoCapitalize="none" spellCheck={false} autoFocus />
                 <button type="button" onClick={() => setShowToken((value) => !value)} aria-label={showToken ? 'Token verbergen' : 'Token tonen'}>{showToken ? <EyeOff /> : <Eye />}</button>
               </div>
-              <label className="remember-token" htmlFor="remember-token" aria-label="Token veilig bewaren"><input id="remember-token" type="checkbox" checked={rememberToken} onChange={(event) => setRememberToken(event.target.checked)} /><span><strong>Token veilig bewaren</strong><small>In macOS Sleutelhanger, zodat je dit niet opnieuw hoeft in te voeren.</small></span></label>
+              <label className="remember-token" htmlFor="remember-token" aria-label="Token veilig bewaren"><input id="remember-token" type="checkbox" checked={rememberToken} onChange={(event) => setRememberToken(event.target.checked)} /><span><strong>Token veilig bewaren</strong><small>Op de gekoppelde bridge, zodat je dit niet opnieuw hoeft in te voeren.</small></span></label>
               <details className="advanced-settings">
                 <summary>Bridge-instellingen</summary>
                 <div className="advanced-grid">
