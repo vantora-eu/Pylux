@@ -6,7 +6,8 @@ services:
     image: pylux-web-bridge:local
     container_name: pylux-web-bridge
     restart: unless-stopped
-    network_mode: host
+    networks:
+      - proxy
     environment:
       PYLUX_BRIDGE_BIND: 0.0.0.0
       PYLUX_BRIDGE_PORT: "8080"
@@ -19,3 +20,7 @@ services:
       - /srv/pylux/data:/var/lib/pylux
     mem_limit: 768m
     cpus: 1.25
+
+networks:
+  proxy:
+    external: true
