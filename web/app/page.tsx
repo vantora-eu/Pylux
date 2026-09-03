@@ -61,6 +61,7 @@ export default function HomePage() {
   const [fullscreenFallback, setFullscreenFallback] = useState(false);
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [showTouchControls, setShowTouchControls] = useState(false);
+  const [rememberToken, setRememberToken] = useState(true);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamPanelRef = useRef<HTMLElement>(null);
   const bridgeRef = useRef<PyluxBridge | null>(null);
@@ -116,20 +117,7 @@ export default function HomePage() {
     setWizardStep(1);
   }, [games.length]);
 
-  const connectAccount = useCallback(async () => {
-    setSetupError('');
-    if (npsso.trim().length < 16) {
-      setSetupError('Dit token lijkt te kort. Kopieer alleen de waarde achter npsso=.');
-      return;
-    }
-    if (!bridgeUrl.startsWith('ws://') && !bridgeUrl.startsWith('wss://')) {
-      setSetupError('Gebruik een adres dat begint met ws:// of wss://.');
-      return;
-    }
-    setWizardStep(3);
-    setProgress('Veilig verbinden met de lokale bridge…');
-    try {
-      const bridge = new PyluxBridge(bridgeUrl, {
+  const createBridge = useCallback(() => new PyluxBridge(bridgeUrl, {
         onStateChange: setSessionState,
         onStream: (stream) => {
           const video = videoRef.current;
@@ -150,16 +138,48 @@ export default function HomePage() {
           setSetupError(message);
           setError(message);
         },
-      });
+      }), [bridgeUrl, muted]);
+
+  const connectAccount = useCallback(async () => {
+    setSetupError('');
+    if (npsso.trim().length < 16) {
+      setSetupError('Dit token lijkt te kort. Kopieer alleen de waarde achter npsso=.');
+      return;
+    }
+    if (!bridgeUrl.startsWith('ws://') && !bridgeUrl.startsWith('wss://')) {
+      setSetupError('Gebruik een adres dat begint met ws:// of wss://.');
+      return;
+    }
+    setWizardStep(3);
+    setProgress(rememberToken ? 'Token veilig opslaan in macOS Sleutelhanger…' : 'Veilig verbinden met de lokale bridge…');
+    try {
+      bridgeRef.current?.disconnect();
+      const bridge = createBridge();
       bridgeRef.current = bridge;
-      await bridge.configureAndLoadCatalog(pairCode, npsso.trim());
+      await bridge.configureAndLoadCatalog(pairCode, npsso.trim(), rememberToken);
     } catch (cause) {
       setSessionState('error');
       const message = cause instanceof Error ? cause.message : 'De Pylux Bridge reageert niet.';
       setSetupError(message);
       setError(message);
     }
-  }, [bridgeUrl, muted, npsso, pairCode]);
+  }, [bridgeUrl, createBridge, npsso, pairCode, rememberToken]);
+
+  const connectSavedAccount = useCallback(async () => {
+    setSetupError('');
+    setWizardStep(3);
+    setProgress('Opgeslagen account uit macOS Sleutelhanger openen…');
+    try {
+      bridgeRef.current?.disconnect();
+      const bridge = createBridge();
+      bridgeRef.current = bridge;
+      await bridge.loadCatalog(pairCode);
+    } catch (cause) {
+      setSessionState('error');
+      const message = cause instanceof Error ? cause.message : 'Geen opgeslagen account gevonden.';
+      setSetupError(message);
+    }
+  }, [createBridge, pairCode]);
 
   const toggleFullscreen = useCallback(() => {
     const next = !fullscreenFallback;
@@ -409,12 +429,13 @@ export default function HomePage() {
               <span className="wizard-icon"><ShieldCheck size={38} /></span>
               <p className="eyebrow">Eenmalige installatie</p>
               <h2 id="setup-title">Koppel PlayStation Plus</h2>
-              <p className="wizard-lead">Je NPSSO-token wordt rechtstreeks naar de Pylux Bridge op je eigen netwerk gestuurd. De webpagina bewaart het token niet.</p>
+              <p className="wizard-lead">Je NPSSO-token wordt door de lokale Pylux Bridge veilig bewaard in macOS Sleutelhanger. De webpagina zelf bewaart het token niet.</p>
               <div className="privacy-points">
-                <div><LockKeyhole /><span><strong>Alleen lokaal</strong><small>Niet in cookies of browseropslag</small></span></div>
+                <div><LockKeyhole /><span><strong>Veilig bewaard</strong><small>Versleuteld in macOS Sleutelhanger</small></span></div>
                 <div><Gamepad2 /><span><strong>Geen console nodig</strong><small>Voor Plus Premium-cloudgames</small></span></div>
               </div>
-              <button className="wizard-primary" onClick={() => setWizardStep(2)}>Token instellen</button>
+              <button className="wizard-primary" onClick={() => void connectSavedAccount()}>Opgeslagen account gebruiken</button>
+              <button className="wizard-secondary" onClick={() => setWizardStep(2)}>Nieuw token instellen</button>
               <p className="wizard-note">Gebruik dit alleen terwijl de auto geparkeerd staat.</p>
             </div>
           )}
@@ -431,6 +452,7 @@ export default function HomePage() {
                 <input id="npsso" type={showToken ? 'text' : 'password'} value={npsso} onChange={(event) => { setNpsso(event.target.value); setSetupError(''); }} placeholder="Plak je token hier" autoComplete="off" autoCapitalize="none" spellCheck={false} autoFocus />
                 <button type="button" onClick={() => setShowToken((value) => !value)} aria-label={showToken ? 'Token verbergen' : 'Token tonen'}>{showToken ? <EyeOff /> : <Eye />}</button>
               </div>
+              <label className="remember-token" htmlFor="remember-token" aria-label="Token veilig bewaren"><input id="remember-token" type="checkbox" checked={rememberToken} onChange={(event) => setRememberToken(event.target.checked)} /><span><strong>Token veilig bewaren</strong><small>In macOS Sleutelhanger, zodat je dit niet opnieuw hoeft in te voeren.</small></span></label>
               <details className="advanced-settings">
                 <summary>Bridge-instellingen</summary>
                 <div className="advanced-grid">

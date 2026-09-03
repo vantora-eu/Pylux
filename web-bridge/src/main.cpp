@@ -22,6 +22,10 @@
 #include <thread>
 #include <vector>
 
+#if defined(__APPLE__)
+#include <Security/Security.h>
+#endif
+
 using json = nlohmann::json;
 using namespace std::chrono;
 
@@ -29,7 +33,65 @@ namespace {
 
 std::atomic<bool> interrupted{false};
 
+constexpr const char *keychain_service = "eu.vantora.pylux-web";
+constexpr const char *keychain_account = "playstation-npsso";
+
 void signal_handler(int) { interrupted = true; }
+
+std::string load_secure_npsso()
+{
+#if defined(__APPLE__)
+	void *data = nullptr;
+	UInt32 length = 0;
+	const OSStatus status = SecKeychainFindGenericPassword(
+		nullptr,
+		static_cast<UInt32>(std::strlen(keychain_service)), keychain_service,
+		static_cast<UInt32>(std::strlen(keychain_account)), keychain_account,
+		&length, &data, nullptr);
+	if(status != errSecSuccess || !data)
+		return {};
+	std::string token(static_cast<const char *>(data), length);
+	SecKeychainItemFreeContent(nullptr, data);
+	return token;
+#else
+	return {};
+#endif
+}
+
+void store_secure_npsso(const std::string &token)
+{
+#if defined(__APPLE__)
+	SecKeychainItemRef item = nullptr;
+	void *existing = nullptr;
+	UInt32 existing_length = 0;
+	OSStatus status = SecKeychainFindGenericPassword(
+		nullptr,
+		static_cast<UInt32>(std::strlen(keychain_service)), keychain_service,
+		static_cast<UInt32>(std::strlen(keychain_account)), keychain_account,
+		&existing_length, &existing, &item);
+	if(existing)
+		SecKeychainItemFreeContent(nullptr, existing);
+	if(status == errSecSuccess && item)
+	{
+		status = SecKeychainItemModifyAttributesAndData(item, nullptr,
+			static_cast<UInt32>(token.size()), token.data());
+		CFRelease(item);
+	}
+	else
+	{
+		status = SecKeychainAddGenericPassword(
+			nullptr,
+			static_cast<UInt32>(std::strlen(keychain_service)), keychain_service,
+			static_cast<UInt32>(std::strlen(keychain_account)), keychain_account,
+			static_cast<UInt32>(token.size()), token.data(), nullptr);
+	}
+	if(status != errSecSuccess)
+		throw std::runtime_error("Could not save NPSSO in macOS Keychain");
+#else
+	(void)token;
+	throw std::runtime_error("Secure token storage is not available on this platform");
+#endif
+}
 
 std::string required_env(const char *name)
 {
@@ -121,6 +183,8 @@ struct BridgeConfig
 	{
 		BridgeConfig config;
 		config.npsso = optional_env("PYLUX_NPSSO", "");
+		if(config.npsso.empty())
+			config.npsso = load_secure_npsso();
 		config.locale = optional_env("PYLUX_CLOUD_LOCALE", "nl-NL");
 		config.cache_dir = optional_env("PYLUX_CLOUD_CACHE_DIR", "/tmp/pylux-web-catalog");
 		config.forced_datacenter = optional_env("PYLUX_CLOUD_DATACENTER", "Auto");
@@ -288,8 +352,11 @@ private:
 						if(session_ || provisioning_)
 							throw std::runtime_error("Stop the active stream before changing the PlayStation account");
 					}
+					const bool remember = message.value("remember", true);
+					if(remember)
+						store_secure_npsso(token);
 					config_.npsso = token;
-					socket->send(json{{"type", "configured"}}.dump());
+					socket->send(json{{"type", "configured"}, {"persisted", remember}}.dump());
 					fetch_catalog(socket, true);
 				}
 				else if(config_.npsso.empty())

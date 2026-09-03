@@ -34,7 +34,7 @@ type SignalMessage =
   | { type: 'state'; state: BridgeState }
   | { type: 'catalog'; games: CloudGame[]; warning?: string }
   | { type: 'progress'; message: string }
-  | { type: 'configured' }
+  | { type: 'configured'; persisted?: boolean }
   | { type: 'error'; message: string };
 
 /** Browser-side half of the cloud-only Pylux WebRTC bridge protocol. */
@@ -64,14 +64,14 @@ export class PyluxBridge {
     });
   }
 
-  async configureAndLoadCatalog(pairCode: string, npsso: string) {
+  async configureAndLoadCatalog(pairCode: string, npsso: string, remember = true) {
     this.pairCode = pairCode;
     this.events.onStateChange('connecting');
     await new Promise<void>((resolve, reject) => {
       const socket = new WebSocket(this.endpoint);
       this.socket = socket;
       socket.onopen = () => {
-        this.send({ type: 'configure', pairCode, npsso });
+        this.send({ type: 'configure', pairCode, npsso, remember });
         resolve();
       };
       socket.onerror = () => reject(new Error('De lokale Pylux Bridge is niet bereikbaar.'));
@@ -151,7 +151,7 @@ export class PyluxBridge {
       } else if (message.type === 'progress') {
         this.events.onProgress(message.message);
       } else if (message.type === 'configured') {
-        this.events.onProgress('Token geaccepteerd. Gamecatalogus ophalen…');
+        this.events.onProgress(message.persisted ? 'Token veilig opgeslagen. Gamecatalogus ophalen…' : 'Token geaccepteerd. Gamecatalogus ophalen…');
       } else if (message.type === 'state') {
         this.events.onStateChange(message.state);
       } else if (message.type === 'error') {

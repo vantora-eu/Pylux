@@ -1,7 +1,7 @@
 # Pylux for Tesla Web
 
 A 1920×1200, touch-first PlayStation Plus Cloud Streaming surface for Pylux. A three-step setup
-wizard passes the NPSSO token once to the native bridge, which keeps it in process memory, supplies
+wizard passes the NPSSO token once to the native bridge, which stores it in macOS Keychain, supplies
 the authenticated cloud catalog, and forwards the chosen game's audio/video through WebRTC. The
 token is never written to browser storage.
 

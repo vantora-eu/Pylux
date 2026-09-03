@@ -29,6 +29,10 @@ add_executable(pylux-web-bridge src/main.cpp)
 target_compile_features(pylux-web-bridge PRIVATE cxx_std_17)
 target_link_libraries(pylux-web-bridge PRIVATE Chiaki::lib datachannel-static nlohmann_json::nlohmann_json)
 
+if(APPLE)
+  target_link_libraries(pylux-web-bridge PRIVATE "-framework Security")
+endif()
+
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
   target_compile_options(pylux-web-bridge PRIVATE -Wall -Wextra -Wpedantic)
 endif()

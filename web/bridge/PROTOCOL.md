@@ -5,7 +5,7 @@ discriminator.
 
 ## Browser to bridge
 
-- `configure`: `{ type, pairCode, npsso }` (one-time local setup; the token is not persisted)
+- `configure`: `{ type, pairCode, npsso, remember?: boolean }` (secure local setup; macOS stores it in Keychain when `remember` is true)
 - `catalog`: `{ type, pairCode, forceRefresh?: boolean }`
 - `start`: `{ type, pairCode, productId, profile: { video: "720p" | "1080p", fps: 30 | 60, hdr: boolean } }`
 - `answer`: `{ type, sdp: RTCSessionDescriptionInit }`
@@ -17,7 +17,7 @@ button, stick and trigger values.
 
 ## Bridge to browser
 
-- `configured`: `{ type }`
+- `configured`: `{ type, persisted: boolean }`
 - `catalog`: `{ type, games: CloudGame[], warning?: string }`
 - `offer`: `{ type, sdp: RTCSessionDescriptionInit }`
 - `ice`: `{ type, candidate: RTCIceCandidateInit }`
@@ -27,5 +27,6 @@ button, stick and trigger values.
 
 The native bridge owns the NPSSO token after initial setup, catalog fetch, Plus entitlement
 validation and cloud session provisioning. It sends neither NPSSO nor allocation credentials back
-to the browser and does not persist a wizard-supplied token. Every configure/catalog/start request
+to the browser. On macOS, opt-in persistence uses the system Keychain rather than browser storage
+or a plaintext file. Every configure/catalog/start request
 requires the pairing code, and deployments must use TLS (`wss://`) outside localhost.

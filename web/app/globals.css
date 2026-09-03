@@ -251,6 +251,7 @@ kbd { min-width: 42px; height: 32px; padding: 0 8px; border: 1px solid rgba(255,
 .privacy-points span { display: flex; flex-direction: column; gap: 5px; }
 .privacy-points small { color: var(--muted); font-size: 12px; line-height: 1.35; }
 .wizard-primary { width: 100%; min-height: 66px; border: 0; border-radius: 18px; background: var(--cyan); color: #041216; cursor: pointer; font-weight: 780; font-size: 17px; box-shadow: 0 12px 32px rgba(24,200,239,.2); }
+.wizard-secondary { width: 100%; min-height: 56px; margin-top: 11px; border: 1px solid var(--line); border-radius: 17px; color: #d8e0e7; background: rgba(255,255,255,.035); cursor: pointer; font-weight: 680; }
 .wizard-note { margin: 17px 0 0; color: #7f8994; font-size: 12px; }
 .wizard-back { position: absolute; top: 42px; left: 0; display: flex; align-items: center; gap: 7px; border: 0; background: none; color: #aeb7c0; cursor: pointer; }
 .setup-label { display: block; margin-bottom: 9px; text-align: left; color: #dfe5ea; font-size: 13px; font-weight: 680; }
@@ -258,6 +259,11 @@ kbd { min-width: 42px; height: 32px; padding: 0 8px; border: 1px solid rgba(255,
 .token-field:focus-within { border-color: var(--cyan); box-shadow: 0 0 0 3px rgba(24,200,239,.11); }
 .token-field input { min-width: 0; height: 100%; flex: 1; padding: 0 18px; border: 0; outline: 0; color: var(--ink); background: transparent; font: 15px var(--font-geist-mono), monospace; }
 .token-field button { width: 62px; height: 100%; border: 0; border-left: 1px solid var(--line); background: transparent; color: #aeb7c0; cursor: pointer; }
+.remember-token { margin: 14px 0 4px; padding: 14px 16px; display: flex; align-items: center; gap: 13px; text-align: left; border: 1px solid var(--line); border-radius: 15px; background: rgba(255,255,255,.025); cursor: pointer; }
+.remember-token input { width: 21px; height: 21px; flex: 0 0 auto; accent-color: var(--cyan); }
+.remember-token span { display: flex; flex-direction: column; gap: 3px; }
+.remember-token strong { font-size: 13px; }
+.remember-token small { color: var(--muted); font-size: 11px; line-height: 1.35; }
 .advanced-settings { margin: 14px 0 20px; text-align: left; }
 .advanced-settings summary { padding: 10px 2px; color: #8f99a4; cursor: pointer; font-size: 12px; }
 .advanced-grid { padding: 14px; display: grid; grid-template-columns: 1.3fr .7fr; gap: 12px; border: 1px solid var(--line); border-radius: 15px; background: rgba(255,255,255,.02); }
