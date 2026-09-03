@@ -336,11 +336,12 @@ public:
 	void shutdown()
 	{
 		stop_cloud_session();
-		std::shared_ptr<rtc::WebSocket> socket;
+		std::vector<std::shared_ptr<rtc::WebSocket>> sockets;
 		std::shared_ptr<rtc::PeerConnection> peer;
 		{
 			std::lock_guard<std::mutex> lock(client_mutex_);
-			socket = std::move(socket_);
+			socket_.reset();
+			sockets = std::move(client_sockets_);
 			peer = std::move(peer_);
 			video_track_.reset();
 			audio_track_.reset();
@@ -348,8 +349,9 @@ public:
 		}
 		// Closing either object can synchronously invoke a callback. Never do
 		// that while holding client_mutex_, or shutdown can deadlock itself.
-		if(socket)
-			socket->close();
+		for(const auto &socket : sockets)
+			if(socket)
+				socket->close();
 		if(peer)
 			peer->close();
 		if(server_)
@@ -360,6 +362,10 @@ private:
 	void accept_client(std::shared_ptr<rtc::WebSocket> socket)
 	{
 		std::cout << "Browser connected from " << socket->remoteAddress().value_or("unknown") << std::endl;
+		{
+			std::lock_guard<std::mutex> lock(client_mutex_);
+			client_sockets_.push_back(socket);
+		}
 		socket->onMessage(nullptr, [this, weak = std::weak_ptr<rtc::WebSocket>(socket)](std::string message) {
 			if(auto current = weak.lock())
 				handle_signaling(current, message);
@@ -371,6 +377,7 @@ private:
 			std::shared_ptr<rtc::PeerConnection> peer;
 			{
 				std::lock_guard<std::mutex> lock(client_mutex_);
+				client_sockets_.erase(std::remove(client_sockets_.begin(), client_sockets_.end(), current), client_sockets_.end());
 				if(socket_ != current)
 					return;
 				socket_.reset();
@@ -1008,6 +1015,7 @@ private:
 	ChiakiLog log_{};
 	std::unique_ptr<rtc::WebSocketServer> server_;
 	std::shared_ptr<rtc::WebSocket> socket_;
+	std::vector<std::shared_ptr<rtc::WebSocket>> client_sockets_;
 	std::shared_ptr<rtc::PeerConnection> peer_;
 	std::shared_ptr<rtc::Track> video_track_;
 	std::shared_ptr<rtc::Track> audio_track_;

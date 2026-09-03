@@ -9,7 +9,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /src
 COPY . .
 
-RUN cmake -S . -B /build -G Ninja \
+RUN --mount=type=cache,target=/build \
+    cmake -S . -B /build -G Ninja \
       -DCHIAKI_ENABLE_WEB_BRIDGE=ON \
       -DCHIAKI_ENABLE_GUI=OFF \
       -DCHIAKI_ENABLE_CLI=OFF \
@@ -18,7 +19,8 @@ RUN cmake -S . -B /build -G Ninja \
       -DCHIAKI_ENABLE_STEAMDECK_NATIVE=OFF \
       -DCHIAKI_ENABLE_STEAM_SHORTCUT=OFF \
       -DCHIAKI_ENABLE_SETSU=OFF \
-    && cmake --build /build --target pylux-web-bridge -j 2
+    && cmake --build /build --target pylux-web-bridge -j 2 \
+    && cp /build/web-bridge/pylux-web-bridge /pylux-web-bridge
 
 FROM ubuntu:24.04
 
@@ -29,7 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && useradd --system --uid 10001 --home /var/lib/pylux --shell /usr/sbin/nologin pylux \
     && install -d -o pylux -g pylux -m 0700 /var/lib/pylux /var/lib/pylux/catalog /var/lib/pylux/secrets
 
-COPY --from=build /build/web-bridge/pylux-web-bridge /usr/local/bin/pylux-web-bridge
+COPY --from=build /pylux-web-bridge /usr/local/bin/pylux-web-bridge
 
 USER pylux
 EXPOSE 8080
