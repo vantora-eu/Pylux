@@ -179,7 +179,7 @@ export default function HomePage() {
       return;
     }
     setWizardStep(3);
-    setProgress(rememberToken ? 'Token veilig opslaan in macOS Sleutelhanger…' : 'Veilig verbinden met de lokale bridge…');
+    setProgress(rememberToken ? 'Token veilig opslaan op de gekoppelde bridge…' : 'Veilig verbinden met de bridge…');
     try {
       bridgeRef.current?.disconnect();
       const bridge = createBridge();
@@ -195,13 +195,17 @@ export default function HomePage() {
 
   const connectSavedAccount = useCallback(async () => {
     setSetupError('');
+    if (!pairCode.trim()) {
+      setSetupError('Vul de koppelcode van deze Pylux Bridge in.');
+      return;
+    }
     setWizardStep(3);
-    setProgress('Opgeslagen account uit macOS Sleutelhanger openen…');
+    setProgress('Opgeslagen account op de bridge openen…');
     try {
       bridgeRef.current?.disconnect();
       const bridge = createBridge();
       bridgeRef.current = bridge;
-      await bridge.loadCatalog(pairCode);
+      await bridge.loadCatalog(pairCode.trim());
     } catch (cause) {
       setSessionState('error');
       const message = cause instanceof Error ? cause.message : 'Geen opgeslagen account gevonden.';
@@ -475,6 +479,11 @@ export default function HomePage() {
                 <div><LockKeyhole /><span><strong>Veilig bewaard</strong><small>Alleen toegankelijk voor de Pylux Bridge</small></span></div>
                 <div><Gamepad2 /><span><strong>Geen console nodig</strong><small>Voor Plus Premium-cloudgames</small></span></div>
               </div>
+              <label className="setup-label" htmlFor="saved-pair-code">Koppelcode</label>
+              <div className="token-field">
+                <input id="saved-pair-code" type="password" value={pairCode} onChange={(event) => { setPairCode(event.target.value); setSetupError(''); }} placeholder="Voer je koppelcode in" autoComplete="off" autoCapitalize="none" spellCheck={false} />
+              </div>
+              {setupError && <p className="wizard-error">{setupError}</p>}
               <button className="wizard-primary" onClick={() => void connectSavedAccount()}>Opgeslagen account gebruiken</button>
               <button className="wizard-secondary" onClick={() => setWizardStep(2)}>Nieuw token instellen</button>
               <p className="wizard-note">Gebruik dit alleen terwijl de auto geparkeerd staat.</p>
