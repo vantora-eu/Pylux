@@ -2,7 +2,7 @@ FROM ubuntu:24.04 AS build
 
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential ca-certificates cmake git ninja-build pkg-config python3 python3-protobuf \
+    build-essential ca-certificates cmake git ninja-build pkg-config protobuf-compiler python3 python3-protobuf \
     libjson-c-dev libminiupnpc-dev libopus-dev libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
