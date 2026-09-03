@@ -1,5 +1,6 @@
 #include <chiaki/audioreceiver.h>
-#include <chiaki/base64.h>
+#include <chiaki/cloudcatalog.h>
+#include <chiaki/cloudsession.h>
 #include <chiaki/controller.h>
 #include <chiaki/log.h>
 #include <chiaki/session.h>
@@ -103,9 +104,12 @@ uint8_t clamp_trigger(int value)
 
 struct BridgeConfig
 {
-	std::string ps_host;
-	std::string regist_key;
-	uint8_t morning[16]{};
+	std::string npsso;
+	std::string locale;
+	std::string cache_dir;
+	std::string forced_datacenter;
+	std::string prior_datacenters_json;
+	bool skip_account_attr_check = false;
 	std::string pair_code;
 	std::string bind_address;
 	uint16_t port = 8080;
@@ -116,8 +120,12 @@ struct BridgeConfig
 	static BridgeConfig load()
 	{
 		BridgeConfig config;
-		config.ps_host = required_env("PYLUX_PS_HOST");
-		config.regist_key = required_env("PYLUX_REGIST_KEY");
+		config.npsso = required_env("PYLUX_NPSSO");
+		config.locale = optional_env("PYLUX_CLOUD_LOCALE", "nl-NL");
+		config.cache_dir = optional_env("PYLUX_CLOUD_CACHE_DIR", "/tmp/pylux-web-catalog");
+		config.forced_datacenter = optional_env("PYLUX_CLOUD_DATACENTER", "Auto");
+		config.prior_datacenters_json = optional_env("PYLUX_CLOUD_DATACENTERS_JSON", "");
+		config.skip_account_attr_check = optional_env("PYLUX_SKIP_ACCOUNT_ATTR_CHECK", "0") == "1";
 		config.pair_code = required_env("PYLUX_PAIR_CODE");
 		config.bind_address = optional_env("PYLUX_BRIDGE_BIND", "127.0.0.1");
 		config.port = static_cast<uint16_t>(std::stoul(optional_env("PYLUX_BRIDGE_PORT", "8080")));
@@ -125,21 +133,41 @@ struct BridgeConfig
 		config.tls_key = optional_env("PYLUX_TLS_KEY", "");
 		config.ice_servers = split_csv(optional_env("PYLUX_ICE_SERVERS", ""));
 
-		if(config.regist_key.size() != CHIAKI_SESSION_AUTH_SIZE)
-			throw std::runtime_error("PYLUX_REGIST_KEY must contain exactly 16 characters");
+		if(config.npsso.size() < 16)
+			throw std::runtime_error("PYLUX_NPSSO does not look like a valid NPSSO token");
 		if(config.pair_code.size() < 6)
 			throw std::runtime_error("PYLUX_PAIR_CODE must contain at least 6 characters");
 		if(config.port == 0)
 			throw std::runtime_error("PYLUX_BRIDGE_PORT must be between 1 and 65535");
 		if(config.tls_cert.empty() != config.tls_key.empty())
 			throw std::runtime_error("PYLUX_TLS_CERT and PYLUX_TLS_KEY must be configured together");
-
-		const std::string morning = required_env("PYLUX_MORNING_BASE64");
-		size_t morning_size = sizeof(config.morning);
-		if(chiaki_base64_decode(morning.c_str(), morning.size(), config.morning, &morning_size) != CHIAKI_ERR_SUCCESS || morning_size != sizeof(config.morning))
-			throw std::runtime_error("PYLUX_MORNING_BASE64 must decode to exactly 16 bytes");
 		return config;
 	}
+};
+
+struct CloudSelection
+{
+	std::string service_type;
+	std::string identifier;
+	std::string name;
+	std::string owned_entitlement_id;
+	std::string owned_platform;
+	int resolution = 1080;
+	int bitrate_kbps = 15000;
+};
+
+struct CloudAllocation
+{
+	std::string host;
+	std::string handshake_key;
+	std::string launch_spec;
+	std::string session_id;
+	ChiakiServiceType service_type = CHIAKI_SERVICE_TYPE_PSCLOUD;
+	uint16_t port = 0;
+	uint8_t psn_wrapper_type = 0;
+	uint32_t mtu_in = 0;
+	uint32_t mtu_out = 0;
+	uint64_t rtt_us = 0;
 };
 
 class WebBridge
@@ -153,7 +181,7 @@ public:
 		rtc::WebSocketServer::Configuration server_config;
 		server_config.port = config_.port;
 		server_config.bindAddress = config_.bind_address;
-		server_config.maxMessageSize = 256 * 1024;
+		server_config.maxMessageSize = 2 * 1024 * 1024;
 		if(!config_.tls_cert.empty())
 		{
 			server_config.enableTls = true;
@@ -172,7 +200,7 @@ public:
 
 	void shutdown()
 	{
-		stop_chiaki();
+		stop_cloud_session();
 		std::shared_ptr<rtc::WebSocket> socket;
 		std::shared_ptr<rtc::PeerConnection> peer;
 		{
@@ -231,8 +259,8 @@ private:
 			{
 				peer->close();
 			}
-			std::cout << "Browser disconnected; stopping Remote Play" << std::endl;
-			stop_chiaki();
+			std::cout << "Browser disconnected; stopping PlayStation Plus stream" << std::endl;
+			stop_cloud_session();
 		});
 	}
 
@@ -242,7 +270,7 @@ private:
 		{
 			const json message = json::parse(raw);
 			const std::string type = message.value("type", "");
-			if(type == "start")
+			if(type == "catalog" || type == "start")
 			{
 				if(!secure_equals(message.value("pairCode", ""), config_.pair_code))
 				{
@@ -250,29 +278,136 @@ private:
 					socket->close();
 					return;
 				}
-				create_peer(socket);
+				if(type == "catalog")
+					fetch_catalog(socket, message.value("forceRefresh", false));
+				else
+				{
+					select_game(message);
+					create_peer(socket);
+				}
 			}
-			else if(type == "answer" && peer_)
+			else if(type == "answer")
 			{
+				auto peer = current_peer();
+				if(!peer)
+					throw std::runtime_error("No stream offer is active");
 				const auto sdp = message.at("sdp");
-				peer_->setRemoteDescription(rtc::Description(sdp.at("sdp").get<std::string>(), "answer"));
+				peer->setRemoteDescription(rtc::Description(sdp.at("sdp").get<std::string>(), "answer"));
 			}
-			else if(type == "ice" && peer_)
+			else if(type == "ice")
 			{
+				auto peer = current_peer();
+				if(!peer)
+					return;
 				const auto candidate = message.at("candidate");
-				peer_->addRemoteCandidate(rtc::Candidate(
+				peer->addRemoteCandidate(rtc::Candidate(
 					candidate.at("candidate").get<std::string>(),
 					candidate.value("sdpMid", "0")));
 			}
 			else if(type == "stop")
 			{
-				stop_chiaki();
+				stop_cloud_session();
 				send_signal(json{{"type", "state"}, {"state", "idle"}});
 			}
 		}
 		catch(const std::exception &error)
 		{
 			socket->send(json{{"type", "error"}, {"message", std::string("Invalid signaling message: ") + error.what()}}.dump());
+		}
+	}
+
+	std::shared_ptr<rtc::PeerConnection> current_peer()
+	{
+		std::lock_guard<std::mutex> lock(client_mutex_);
+		return peer_;
+	}
+
+	void fetch_catalog(const std::shared_ptr<rtc::WebSocket> &socket, bool force_refresh)
+	{
+		socket->send(json{{"type", "state"}, {"state", "loading"}}.dump());
+		ChiakiCloudCatalogConfig catalog_config{};
+		catalog_config.npsso = config_.npsso.c_str();
+		catalog_config.locale = config_.locale.c_str();
+		catalog_config.cache_dir = config_.cache_dir.c_str();
+		catalog_config.force_refresh = force_refresh;
+
+		ChiakiCloudCatalogResult result{};
+		const ChiakiErrorCode error = chiaki_cloudcatalog_fetch_unified(&catalog_config, &result, &log_);
+		if(error != CHIAKI_ERR_SUCCESS || !result.json)
+		{
+			const std::string detail = result.error_message ? result.error_message : chiaki_error_string(error);
+			chiaki_cloudcatalog_result_fini(&result);
+			throw std::runtime_error("Cloud catalog failed: " + detail);
+		}
+
+		json root = json::parse(result.json);
+		chiaki_cloudcatalog_result_fini(&result);
+		json games = json::array();
+		for(const auto &game : root.value("games", json::array()))
+		{
+			const std::string service = game.value("streamServiceType", "");
+			const std::string identifier = game.value("streamIdentifier", "");
+			if((service != "pscloud" && service != "psnow") || identifier.empty())
+				continue;
+			games.push_back({
+				{"productId", game.value("productId", "")},
+				{"name", game.value("name", "Unknown game")},
+				{"imageUrl", game.value("imageUrl", "")},
+				{"landscapeImageUrl", game.value("landscapeImageUrl", "")},
+				{"platform", game.value("platform", "")},
+				{"serviceType", service},
+				{"isOwned", game.value("isOwned", false)}
+			});
+		}
+
+		const std::string warning = root.value("warning", "");
+		{
+			std::lock_guard<std::mutex> lock(catalog_mutex_);
+			catalog_root_ = std::move(root);
+		}
+		socket->send(json{{"type", "catalog"},
+		                  {"games", games},
+		                  {"warning", warning}}.dump());
+		socket->send(json{{"type", "state"}, {"state", "idle"}}.dump());
+	}
+
+	void select_game(const json &message)
+	{
+		const std::string product_id = message.value("productId", "");
+		if(product_id.empty())
+			throw std::runtime_error("No PlayStation Plus game selected");
+
+		json selected;
+		json catalog;
+		{
+			std::lock_guard<std::mutex> lock(catalog_mutex_);
+			catalog = catalog_root_;
+		}
+		for(const auto &game : catalog.value("games", json::array()))
+		{
+			if(game.value("productId", "") == product_id)
+			{
+				selected = game;
+				break;
+			}
+		}
+		if(selected.is_null())
+			throw std::runtime_error("Selected game is not in the authenticated cloud catalog");
+
+		CloudSelection selection;
+		selection.service_type = selected.value("streamServiceType", "");
+		selection.identifier = selected.value("streamIdentifier", "");
+		selection.name = selected.value("name", "PlayStation Plus game");
+		selection.owned_entitlement_id = selected.value("isOwned", false) ? selected.value("entitlementId", "") : "";
+		selection.owned_platform = selected.value("platform", "");
+		const auto profile = message.value("profile", json::object());
+		selection.resolution = profile.value("video", "1080p") == "720p" ? 720 : 1080;
+		selection.bitrate_kbps = selection.resolution == 720 ? 10000 : 15000;
+		if((selection.service_type != "pscloud" && selection.service_type != "psnow") || selection.identifier.empty())
+			throw std::runtime_error("Selected catalog item is not streamable");
+		{
+			std::lock_guard<std::mutex> lock(catalog_mutex_);
+			selection_ = std::move(selection);
 		}
 	}
 
@@ -298,12 +433,11 @@ private:
 		peer_->onStateChange([this](rtc::PeerConnection::State state) {
 			if(state == rtc::PeerConnection::State::Connected)
 			{
-				send_signal(json{{"type", "state"}, {"state", "connecting"}});
-				start_chiaki();
+				start_cloud_session();
 			}
 			else if(state == rtc::PeerConnection::State::Failed || state == rtc::PeerConnection::State::Closed)
 			{
-				stop_chiaki();
+				stop_cloud_session();
 			}
 		});
 
@@ -343,28 +477,127 @@ private:
 		peer_->setLocalDescription(rtc::Description::Type::Offer);
 	}
 
-	void start_chiaki()
+	void start_cloud_session()
+	{
+		bool expected = false;
+		if(!provisioning_.compare_exchange_strong(expected, true))
+			return;
+		cancel_provisioning_ = false;
+		std::lock_guard<std::mutex> thread_lock(cloud_thread_mutex_);
+		if(cloud_thread_.joinable())
+			cloud_thread_.join();
+		cloud_thread_ = std::thread([this] {
+			provision_and_start();
+			provisioning_ = false;
+		});
+	}
+
+	void provision_and_start()
+	{
+		CloudSelection selection;
+		json catalog;
+		{
+			std::lock_guard<std::mutex> lock(catalog_mutex_);
+			selection = selection_;
+			catalog = catalog_root_;
+		}
+		if(selection.identifier.empty())
+		{
+			send_signal(json{{"type", "error"}, {"message", "No cloud game selected"}});
+			return;
+		}
+
+		send_signal(json{{"type", "state"}, {"state", "provisioning"}});
+		std::string store_country = catalog.value("fallbackRegion", "");
+		std::string store_lang = catalog.value("resolvedStoreLang", "");
+		const std::string settled_locale = catalog.value("settledLocale", config_.locale);
+		const size_t separator = settled_locale.find('-');
+		if(store_country.empty() && separator != std::string::npos)
+			store_country = settled_locale.substr(separator + 1);
+		if(store_lang.empty())
+			store_lang = settled_locale.substr(0, separator);
+		const bool catalog_is_foreign = !catalog.value("nativeMode", true);
+
+		ChiakiCloudProvisionConfig provision{};
+		provision.service_type = selection.service_type.c_str();
+		provision.game_identifier = selection.identifier.c_str();
+		provision.game_name = selection.name.c_str();
+		provision.npsso = config_.npsso.c_str();
+		provision.store_country = store_country.c_str();
+		provision.store_lang = store_lang.c_str();
+		provision.owned_entitlement_id = selection.owned_entitlement_id.c_str();
+		provision.owned_platform = selection.owned_platform.c_str();
+		provision.catalog_is_foreign = catalog_is_foreign;
+		provision.skip_account_attr_check = config_.skip_account_attr_check;
+		provision.forced_datacenter = config_.forced_datacenter.c_str();
+		provision.prior_datacenters_json = config_.prior_datacenters_json.c_str();
+		provision.game_language = config_.locale.c_str();
+		provision.resolution = selection.resolution;
+		provision.bitrate_kbps = selection.bitrate_kbps;
+		provision.progress = &WebBridge::cloud_progress_callback;
+		provision.is_cancelled = &WebBridge::cloud_cancelled_callback;
+		provision.user = this;
+
+		ChiakiCloudProvisionResult result{};
+		const ChiakiErrorCode provision_error = chiaki_cloud_provision_session(&provision, &result, &log_);
+		if(provision_error != CHIAKI_ERR_SUCCESS)
+		{
+			const std::string detail = result.error_message ? result.error_message : chiaki_error_string(provision_error);
+			chiaki_cloud_provision_result_fini(&result);
+			if(!cancel_provisioning_)
+				send_signal(json{{"type", "error"}, {"message", "PlayStation Plus provisioning failed: " + detail}});
+			return;
+		}
+
+		CloudAllocation allocation;
+		allocation.host = result.server_ip;
+		allocation.port = static_cast<uint16_t>(result.server_port);
+		allocation.handshake_key = result.handshake_key ? result.handshake_key : "";
+		allocation.launch_spec = result.launch_spec ? result.launch_spec : "";
+		allocation.session_id = result.session_id ? result.session_id : "";
+		allocation.service_type = selection.service_type == "pscloud" ? CHIAKI_SERVICE_TYPE_PSCLOUD : CHIAKI_SERVICE_TYPE_PSNOW;
+		allocation.psn_wrapper_type = result.psn_wrapper_type;
+		allocation.mtu_in = result.mtu_in;
+		allocation.mtu_out = result.mtu_out;
+		allocation.rtt_us = result.rtt_us;
+		chiaki_cloud_provision_result_fini(&result);
+		if(cancel_provisioning_)
+			return;
+
+		start_chiaki(std::move(allocation), selection.resolution);
+	}
+
+	void start_chiaki(CloudAllocation allocation, int resolution)
 	{
 		std::lock_guard<std::mutex> lock(session_mutex_);
-		if(session_)
+		if(session_ || cancel_provisioning_)
 			return;
+		allocation_ = std::move(allocation);
 
 		auto session = std::make_unique<ChiakiSession>();
 		ChiakiConnectInfo info{};
-		info.ps5 = true;
-		info.host = config_.ps_host.c_str();
-		std::memcpy(info.regist_key, config_.regist_key.data(), CHIAKI_SESSION_AUTH_SIZE);
-		std::memcpy(info.morning, config_.morning, sizeof(info.morning));
-		chiaki_connect_video_profile_preset(&info.video_profile, CHIAKI_VIDEO_RESOLUTION_PRESET_1080p, CHIAKI_VIDEO_FPS_PRESET_60);
+		info.ps5 = allocation_.service_type == CHIAKI_SERVICE_TYPE_PSCLOUD;
+		info.host = allocation_.host.c_str();
+		chiaki_connect_video_profile_preset(&info.video_profile,
+			resolution == 720 ? CHIAKI_VIDEO_RESOLUTION_PRESET_720p : CHIAKI_VIDEO_RESOLUTION_PRESET_1080p,
+			CHIAKI_VIDEO_FPS_PRESET_60);
 		info.video_profile.codec = CHIAKI_CODEC_H264;
 		info.video_profile_auto_downgrade = true;
 		info.enable_dualsense = false;
-		info.service_type = CHIAKI_SERVICE_TYPE_REMOTE_PLAY;
+		info.service_type = allocation_.service_type;
+		info.cloud_launch_spec = allocation_.launch_spec.c_str();
+		info.cloud_handshake_key = allocation_.handshake_key.c_str();
+		info.cloud_session_id = allocation_.session_id.c_str();
+		info.cloud_port = allocation_.port;
+		info.cloud_psn_wrapper_type = allocation_.psn_wrapper_type;
+		info.cloud_mtu_in = allocation_.mtu_in;
+		info.cloud_mtu_out = allocation_.mtu_out;
+		info.cloud_rtt_us = allocation_.rtt_us;
 
 		ChiakiErrorCode error = chiaki_session_init(session.get(), &info, &log_);
 		if(error != CHIAKI_ERR_SUCCESS)
 		{
-			send_signal(json{{"type", "error"}, {"message", std::string("Pylux session initialization failed: ") + chiaki_error_string(error)}});
+			send_signal(json{{"type", "error"}, {"message", std::string("Pylux cloud session initialization failed: ") + chiaki_error_string(error)}});
 			return;
 		}
 
@@ -381,10 +614,21 @@ private:
 		if(error != CHIAKI_ERR_SUCCESS)
 		{
 			chiaki_session_fini(session.get());
-			send_signal(json{{"type", "error"}, {"message", std::string("Pylux session start failed: ") + chiaki_error_string(error)}});
+			send_signal(json{{"type", "error"}, {"message", std::string("Pylux cloud session start failed: ") + chiaki_error_string(error)}});
 			return;
 		}
 		session_ = std::move(session);
+	}
+
+	void stop_cloud_session()
+	{
+		cancel_provisioning_ = true;
+		{
+			std::lock_guard<std::mutex> thread_lock(cloud_thread_mutex_);
+			if(cloud_thread_.joinable() && cloud_thread_.get_id() != std::this_thread::get_id())
+				cloud_thread_.join();
+		}
+		stop_chiaki();
 	}
 
 	void stop_chiaki()
@@ -490,10 +734,18 @@ private:
 		auto *bridge = static_cast<WebBridge *>(user);
 		if(event->type == CHIAKI_EVENT_CONNECTED)
 			bridge->send_signal(json{{"type", "state"}, {"state", "streaming"}});
-		else if(event->type == CHIAKI_EVENT_LOGIN_PIN_REQUEST)
-			bridge->send_signal(json{{"type", "error"}, {"message", "The console requested a login PIN; enter it once in the native Pylux app"}});
 		else if(event->type == CHIAKI_EVENT_QUIT)
-			bridge->send_signal(json{{"type", "error"}, {"message", std::string("Remote Play ended: ") + chiaki_quit_reason_string(event->quit.reason)}});
+			bridge->send_signal(json{{"type", "error"}, {"message", std::string("PlayStation Plus stream ended: ") + chiaki_quit_reason_string(event->quit.reason)}});
+	}
+
+	static void cloud_progress_callback(const char *stage, void *user)
+	{
+		static_cast<WebBridge *>(user)->send_signal(json{{"type", "progress"}, {"message", stage ? stage : "Cloud stream voorbereiden…"}});
+	}
+
+	static bool cloud_cancelled_callback(void *user)
+	{
+		return static_cast<WebBridge *>(user)->cancel_provisioning_.load();
 	}
 
 	static bool video_callback(uint8_t *data, size_t size, int32_t, bool, void *user)
@@ -523,11 +775,19 @@ private:
 	std::shared_ptr<rtc::Track> audio_track_;
 	std::shared_ptr<rtc::DataChannel> input_channel_;
 	std::unique_ptr<ChiakiSession> session_;
+	CloudAllocation allocation_;
+	CloudSelection selection_;
+	json catalog_root_;
 	std::vector<uint8_t> video_header_;
 	steady_clock::time_point media_epoch_ = steady_clock::now();
+	std::thread cloud_thread_;
+	std::atomic<bool> provisioning_{false};
+	std::atomic<bool> cancel_provisioning_{false};
 	std::mutex client_mutex_;
 	std::mutex session_mutex_;
 	std::mutex media_mutex_;
+	std::mutex catalog_mutex_;
+	std::mutex cloud_thread_mutex_;
 };
 
 } // namespace

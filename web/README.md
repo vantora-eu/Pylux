@@ -1,8 +1,9 @@
 # Pylux for Tesla Web
 
-A 1920×1200, touch-first browser surface for Pylux. It keeps the existing native Remote Play
-engine separate and receives its audio/video through WebRTC. Without a configured bridge URL,
-the interface starts in clearly labelled demo mode.
+A 1920×1200, touch-first PlayStation Plus Cloud Streaming surface for Pylux. The native bridge
+keeps the NPSSO token private, supplies the authenticated cloud catalog, and forwards the chosen
+game's audio/video through WebRTC. Without a configured bridge URL, the interface starts in
+clearly labelled demo mode.
 
 ## Run locally
 
@@ -12,7 +13,8 @@ npm run dev
 ```
 
 Set `NEXT_PUBLIC_PYLUX_BRIDGE_URL` to the secure WebSocket endpoint of a Pylux bridge. The
-browser side accepts a WebRTC offer, returns an answer and exchanges ICE candidates. See
+browser first requests the Plus catalog, then accepts a WebRTC offer for the chosen game,
+returns an answer and exchanges ICE candidates. See
 [`bridge/PROTOCOL.md`](bridge/PROTOCOL.md) for the message contract.
 
 ## Tesla design targets

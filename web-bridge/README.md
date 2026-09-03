@@ -1,8 +1,9 @@
 # Pylux WebRTC bridge
 
-This optional native process connects to a PS5 through `chiaki-lib` and forwards the existing
-H.264 and Opus samples directly to a browser over WebRTC. Controller states return over an
-unordered, zero-retransmit DataChannel. No video or audio transcoding is performed.
+This optional native process provisions PlayStation Plus Cloud Streaming through `chiaki-lib`
+and forwards its H.264 and Opus samples directly to a browser over WebRTC. Controller states
+return over an unordered, zero-retransmit DataChannel. No console registration and no video or
+audio transcoding are required.
 
 ## Build
 
@@ -19,8 +20,9 @@ cmake --build build-web-bridge --target pylux-web-bridge -j
 ```
 
 Copy `.env.example` to a private shell environment and export the values before starting the
-binary. The registration key and morning value are the same credentials the native Pylux client
-stores for the registered PS5. Never put them in the browser or commit them.
+binary. `PYLUX_NPSSO` is the value of the PlayStation `npsso` cookie, without the `npsso=` prefix.
+The bridge uses it to fetch the authenticated Plus catalog and provision the selected game. The
+token never enters the browser and must never be committed.
 
 ```bash
 ./build-web-bridge/web-bridge/pylux-web-bridge
@@ -32,9 +34,9 @@ to `wss://`; it will reject an insecure `ws://` bridge as mixed content.
 
 ## Security boundary
 
-- A pairing code is mandatory before an offer or console session is created.
+- A pairing code is mandatory before the catalog or a cloud session is created.
 - Only one active browser session is allowed.
-- Closing the signaling socket stops Remote Play.
-- The bridge never sends PSN or console registration credentials to the browser.
+- Closing the signaling socket cancels provisioning and stops Cloud Streaming.
+- The bridge never sends the NPSSO token to the browser.
 - For internet use, add authenticated TURN and place the signaling endpoint behind a hardened
   reverse proxy. Do not expose the development listener directly to the public internet.

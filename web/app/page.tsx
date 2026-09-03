@@ -5,7 +5,7 @@ import {
   MonitorUp, MoreHorizontal, Power, Radio, Settings, Signal, Volume2, Wifi, X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { PyluxBridge, type BridgeState } from '@/lib/pylux-bridge';
+import { PyluxBridge, type BridgeState, type CloudGame } from '@/lib/pylux-bridge';
 
 type SessionState = BridgeState | 'demo';
 
@@ -37,6 +37,11 @@ export default function HomePage() {
   const [gamepad, setGamepad] = useState(false);
   const [clock, setClock] = useState('');
   const [error, setError] = useState('');
+  const [progress, setProgress] = useState('');
+  const [games, setGames] = useState<CloudGame[]>([]);
+  const [catalogWarning, setCatalogWarning] = useState('');
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [selectedGame, setSelectedGame] = useState<CloudGame | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const bridgeRef = useRef<PyluxBridge | null>(null);
 
@@ -96,13 +101,32 @@ export default function HomePage() {
       const bridge = new PyluxBridge(endpoint, {
         onStateChange: setSessionState,
         onStream: (stream) => { if (videoRef.current) videoRef.current.srcObject = stream; },
+        onCatalog: (catalog, warning) => {
+          setGames(catalog);
+          setCatalogWarning(warning);
+          setShowLibrary(true);
+        },
+        onProgress: setProgress,
         onError: setError,
       });
       bridgeRef.current = bridge;
-      await bridge.connect({ video: '1080p', fps: 60, hdr: false }, pairCode);
+      await bridge.loadCatalog(pairCode);
     } catch (cause) {
       setSessionState('error');
       setError(cause instanceof Error ? cause.message : 'De Pylux Bridge reageert niet.');
+    }
+  }, []);
+
+  const launchGame = useCallback((game: CloudGame) => {
+    try {
+      setSelectedGame(game);
+      setShowLibrary(false);
+      setError('');
+      setProgress('Cloudsessie voorbereiden…');
+      bridgeRef.current?.startGame(game, { video: '1080p', fps: 60, hdr: false });
+    } catch (cause) {
+      setSessionState('error');
+      setError(cause instanceof Error ? cause.message : 'De game kon niet worden gestart.');
     }
   }, []);
 
@@ -122,7 +146,7 @@ export default function HomePage() {
         <div className="brand-block">
           {/* oxlint-disable-next-line next/no-img-element */}
           <img src="/pylux-mark.png" alt="Pylux" className="brand-logo" width={54} height={54} />
-          <div><p className="eyebrow">Pylux</p><h1>Tesla Remote Play</h1></div>
+          <div><p className="eyebrow">Pylux</p><h1>PlayStation Plus voor Tesla</h1></div>
         </div>
         <div className="top-status" aria-label="Systeemstatus">
           <span className="vehicle-mode"><BatteryCharging size={23} /> Geparkeerd</span>
@@ -146,19 +170,20 @@ export default function HomePage() {
 
           {!active && (
             <div className="launch-copy">
-              <p className="eyebrow">Klaar voor Remote Play</p>
-              <h2>Je PlayStation.<br />Op het grote scherm.</h2>
-              <p>Touch-first voor het Tesla-scherm, met automatische gamepad-detectie en een rustige interface.</p>
-              <button className="launch-button" onClick={startSession} disabled={sessionState === 'connecting'}>
-                <Power size={29} /> {sessionState === 'connecting' ? 'Verbinden…' : 'Start Remote Play'}
+              <p className="eyebrow">PlayStation Plus Cloud Streaming</p>
+              <h2>Je gamecatalogus.<br />Direct in de Tesla.</h2>
+              <p>Geen eigen console nodig. Kies een game uit je PlayStation Plus-cloudcatalogus en stream via WebRTC.</p>
+              <button className="launch-button" onClick={startSession} disabled={sessionState === 'loading' || sessionState === 'connecting' || sessionState === 'provisioning'}>
+                <Power size={29} /> {sessionState === 'loading' ? 'Catalogus laden…' : 'Open gamecatalogus'}
               </button>
+              {progress && (sessionState === 'connecting' || sessionState === 'provisioning') && <p className="progress-message">{progress}</p>}
               {error && <p className="error-message">{error}</p>}
             </div>
           )}
 
           {active && (
             <div className="session-overlay">
-              <div><p className="eyebrow">Verbonden met Living Room</p><h2>Speelklaar</h2></div>
+              <div><p className="eyebrow">PlayStation Plus Cloud</p><h2>{selectedGame?.name ?? 'Speelklaar'}</h2></div>
               {sessionState === 'demo' && <span className="demo-badge">Interface-demo</span>}
             </div>
           )}
@@ -170,9 +195,9 @@ export default function HomePage() {
               <span className="console-spine" /><span className="console-wing left" /><span className="console-wing right" />
             </div>
             <div className="console-info">
-              <div className="section-kicker"><StatusDot state={sessionState} /> PlayStation 5</div>
-              <h2>Living Room</h2>
-              <p>{active ? 'Remote Play actief' : 'Rustmodus · klaar om te verbinden'}</p>
+              <div className="section-kicker"><StatusDot state={sessionState} /> PlayStation Plus</div>
+              <h2>Cloud Gaming</h2>
+              <p>{active ? `${selectedGame?.name ?? 'Cloudstream'} actief` : 'Catalogus · klaar om te verbinden'}</p>
             </div>
             <button className="more-button" aria-label="Meer console-opties"><MoreHorizontal size={28} /></button>
           </div>
@@ -208,7 +233,7 @@ export default function HomePage() {
       </section>
 
       <nav className="dock" aria-label="Hoofdnavigatie">
-        <button className="dock-home active"><House size={27} /><span>Remote Play</span></button>
+        <button className="dock-home active"><House size={27} /><span>Cloud Gaming</span></button>
         <div className="control-hints" aria-label="Controllerfuncties">
           {controlHints.map((item) => <div key={item.key}><kbd>{item.key}</kbd><span>{item.label}</span></div>)}
         </div>
@@ -223,6 +248,26 @@ export default function HomePage() {
             <div><Gamepad2 /><strong>Bluetooth-controller</strong><span>Koppel de controller aan je Tesla en herlaad de pagina.</span></div>
             <div><Maximize2 /><strong>Touchzones</strong><span>Tik op het streambeeld om de virtuele DualSense-laag te tonen.</span></div>
           </div>
+        </dialog>
+      )}
+
+      {showLibrary && (
+        <dialog open className="library-sheet" aria-labelledby="library-title">
+          <div className="library-heading">
+            <div><p className="eyebrow">PlayStation Plus</p><h2 id="library-title">Kies een game</h2></div>
+            <button className="sheet-close" onClick={() => setShowLibrary(false)} aria-label="Sluiten"><X /></button>
+          </div>
+          {catalogWarning && <p className="catalog-warning">{catalogWarning}</p>}
+          <div className="game-grid">
+            {games.map((game) => (
+              <button key={game.productId} className="game-tile" onClick={() => launchGame(game)}>
+                {/* oxlint-disable-next-line next/no-img-element */}
+                <img src={game.imageUrl || game.landscapeImageUrl || '/pylux-home.jpg'} alt="" />
+                <span><strong>{game.name}</strong><small>{game.platform.toUpperCase()} · {game.isOwned ? 'In bibliotheek' : 'PS Plus'}</small></span>
+              </button>
+            ))}
+          </div>
+          {games.length === 0 && <p className="empty-library">Geen streambare games gevonden voor dit account.</p>}
         </dialog>
       )}
     </main>

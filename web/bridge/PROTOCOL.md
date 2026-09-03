@@ -5,18 +5,25 @@ discriminator.
 
 ## Browser to bridge
 
-- `start`: `{ type, profile: { video: "720p" | "1080p", fps: 30 | 60, hdr: boolean } }`
+- `catalog`: `{ type, pairCode, forceRefresh?: boolean }`
+- `start`: `{ type, pairCode, productId, profile: { video: "720p" | "1080p", fps: 30 | 60, hdr: boolean } }`
 - `answer`: `{ type, sdp: RTCSessionDescriptionInit }`
 - `ice`: `{ type, candidate: RTCIceCandidateInit }`
-- `input`: `{ type, control: string, value: number }`
 - `stop`: `{ type }`
+
+Controller snapshots use the unordered `pylux-input` WebRTC DataChannel and contain compact
+button, stick and trigger values.
 
 ## Bridge to browser
 
+- `catalog`: `{ type, games: CloudGame[], warning?: string }`
 - `offer`: `{ type, sdp: RTCSessionDescriptionInit }`
 - `ice`: `{ type, candidate: RTCIceCandidateInit }`
+- `state`: `{ type, state }`
+- `progress`: `{ type, message }`
 - `error`: `{ type, message: string }`
 
-The native bridge is responsible for console discovery/registration, waking the console,
-feeding decoded Pylux audio/video into WebRTC, and mapping input messages back to Chiaki input.
-It must authenticate every session and should only expose TLS (`wss://`) outside localhost.
+The native bridge owns the NPSSO token, catalog fetch, Plus entitlement validation and cloud
+session provisioning. It sends neither NPSSO nor allocation credentials to the browser. Every
+catalog/start request requires the pairing code, and deployments must use TLS (`wss://`) outside
+localhost.
