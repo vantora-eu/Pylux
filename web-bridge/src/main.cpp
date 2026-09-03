@@ -154,6 +154,29 @@ bool contains_h264_nal(const uint8_t *data, size_t size, uint8_t wanted_type)
 	return false;
 }
 
+bool contains_h265_nal(const uint8_t *data, size_t size, uint8_t wanted_type)
+{
+	for(size_t i = 0; i + 5 < size; ++i)
+	{
+		size_t header = 0;
+		if(data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 1)
+			header = i + 3;
+		else if(data[i] == 0 && data[i + 1] == 0 && data[i + 2] == 0 && data[i + 3] == 1)
+			header = i + 4;
+		if(header && header + 1 < size && ((data[header] >> 1) & 0x3f) == wanted_type)
+			return true;
+	}
+	return false;
+}
+
+bool contains_h265_vcl(const uint8_t *data, size_t size)
+{
+	for(uint8_t type = 0; type <= 31; ++type)
+		if(contains_h265_nal(data, size, type))
+			return true;
+	return false;
+}
+
 int16_t clamp_axis(int value)
 {
 	return static_cast<int16_t>(std::max(-32768, std::min(32767, value)));
@@ -218,6 +241,7 @@ struct CloudSelection
 	std::string owned_platform;
 	int resolution = 1080;
 	int bitrate_kbps = 15000;
+	bool hevc = false;
 };
 
 struct CloudAllocation
@@ -483,6 +507,7 @@ private:
 		selection.name = selected.value("name", "PlayStation Plus game");
 		selection.owned_entitlement_id = selected.value("isOwned", false) ? selected.value("entitlementId", "") : "";
 		selection.owned_platform = selected.value("platform", "");
+		selection.hevc = selected.value("platform", "") == "ps5";
 		const auto profile = message.value("profile", json::object());
 		selection.resolution = profile.value("video", "1080p") == "720p" ? 720 : 1080;
 		selection.bitrate_kbps = selection.resolution == 720 ? 10000 : 15000;
@@ -499,6 +524,7 @@ private:
 		std::lock_guard<std::mutex> lock(client_mutex_);
 		if(peer_)
 			return;
+		media_announced_ = false;
 
 		rtc::Configuration peer_config;
 		for(const std::string &server : config_.ice_servers)
@@ -531,11 +557,27 @@ private:
 		const std::string msid = "pylux-stream";
 
 		rtc::Description::Video video("video", rtc::Description::Direction::SendOnly);
-		video.addH264Codec(video_payload_type);
+		bool hevc = false;
+		{
+			std::lock_guard<std::mutex> catalog_lock(catalog_mutex_);
+			hevc = selection_.hevc;
+		}
+		if(hevc)
+			video.addH265Codec(video_payload_type);
+		else
+			video.addH264Codec(video_payload_type);
 		video.addSSRC(video_ssrc, "pylux-video", msid, "video");
 		video_track_ = peer_->addTrack(video);
+		video_track_->onOpen([this]() {
+			std::cout << "Browser video track is open" << std::endl;
+			send_signal(json{{"type", "progress"}, {"message", "Videokanaal geopend; wachten op het eerste beeld…"}});
+		});
 		auto video_rtp = std::make_shared<rtc::RtpPacketizationConfig>(video_ssrc, "pylux-video", video_payload_type, rtc::H264RtpPacketizer::ClockRate);
-		auto video_packetizer = std::make_shared<rtc::H264RtpPacketizer>(rtc::NalUnit::Separator::StartSequence, video_rtp);
+		std::shared_ptr<rtc::MediaHandler> video_packetizer;
+		if(hevc)
+			video_packetizer = std::make_shared<rtc::H265RtpPacketizer>(rtc::NalUnit::Separator::StartSequence, video_rtp);
+		else
+			video_packetizer = std::make_shared<rtc::H264RtpPacketizer>(rtc::NalUnit::Separator::StartSequence, video_rtp);
 		video_packetizer->addToChain(std::make_shared<rtc::RtcpSrReporter>(video_rtp));
 		video_packetizer->addToChain(std::make_shared<rtc::RtcpNackResponder>());
 		video_track_->setMediaHandler(video_packetizer);
@@ -544,6 +586,7 @@ private:
 		audio.addOpusCodec(audio_payload_type);
 		audio.addSSRC(audio_ssrc, "pylux-audio", msid, "audio");
 		audio_track_ = peer_->addTrack(audio);
+		audio_track_->onOpen([]() { std::cout << "Browser audio track is open" << std::endl; });
 		auto audio_rtp = std::make_shared<rtc::RtpPacketizationConfig>(audio_ssrc, "pylux-audio", audio_payload_type, rtc::OpusRtpPacketizer::DefaultClockRate);
 		auto audio_packetizer = std::make_shared<rtc::OpusRtpPacketizer>(audio_rtp);
 		audio_packetizer->addToChain(std::make_shared<rtc::RtcpSrReporter>(audio_rtp));
@@ -557,7 +600,8 @@ private:
 		input_channel_->onMessage(nullptr, [this](std::string message) { handle_input(message); });
 
 		media_epoch_ = steady_clock::now();
-		peer_->setLocalDescription(rtc::Description::Type::Offer);
+		// Adding the tracks and data channel already triggers offer generation.
+		// A second explicit offer races the generated one on embedded Chromium.
 	}
 
 	void start_cloud_session()
@@ -647,10 +691,10 @@ private:
 		if(cancel_provisioning_)
 			return;
 
-		start_chiaki(std::move(allocation), selection.resolution);
+		start_chiaki(std::move(allocation), selection.resolution, selection.hevc);
 	}
 
-	void start_chiaki(CloudAllocation allocation, int resolution)
+	void start_chiaki(CloudAllocation allocation, int resolution, bool hevc)
 	{
 		std::lock_guard<std::mutex> lock(session_mutex_);
 		if(session_ || cancel_provisioning_)
@@ -664,7 +708,8 @@ private:
 		chiaki_connect_video_profile_preset(&info.video_profile,
 			resolution == 720 ? CHIAKI_VIDEO_RESOLUTION_PRESET_720p : CHIAKI_VIDEO_RESOLUTION_PRESET_1080p,
 			CHIAKI_VIDEO_FPS_PRESET_60);
-		info.video_profile.codec = CHIAKI_CODEC_H264;
+		info.video_profile.codec = hevc ? CHIAKI_CODEC_H265 : CHIAKI_CODEC_H264;
+		active_hevc_ = hevc;
 		info.video_profile_auto_downgrade = true;
 		info.enable_dualsense = false;
 		info.service_type = allocation_.service_type;
@@ -774,14 +819,20 @@ private:
 		{
 			std::lock_guard<std::mutex> lock(media_mutex_);
 			track = video_track_;
-			const bool has_parameter_set = contains_h264_nal(data, size, 7) || contains_h264_nal(data, size, 8);
-			const bool has_slice = contains_h264_nal(data, size, 1) || contains_h264_nal(data, size, 5);
+			const bool hevc = active_hevc_.load();
+			const bool has_parameter_set = hevc
+				? contains_h265_nal(data, size, 32) || contains_h265_nal(data, size, 33) || contains_h265_nal(data, size, 34)
+				: contains_h264_nal(data, size, 7) || contains_h264_nal(data, size, 8);
+			const bool has_slice = hevc ? contains_h265_vcl(data, size) : contains_h264_nal(data, size, 1) || contains_h264_nal(data, size, 5);
 			if(has_parameter_set && !has_slice)
 			{
 				video_header_.assign(data, data + size);
 				return;
 			}
-			if(contains_h264_nal(data, size, 5) && !video_header_.empty())
+			const bool keyframe = hevc
+				? contains_h265_nal(data, size, 19) || contains_h265_nal(data, size, 20) || contains_h265_nal(data, size, 21)
+				: contains_h264_nal(data, size, 5);
+			if(keyframe && !video_header_.empty())
 			{
 				sample = video_header_;
 				sample.insert(sample.end(), data, data + size);
@@ -795,6 +846,8 @@ private:
 		{
 			const auto elapsed = duration_cast<microseconds>(steady_clock::now() - media_epoch_);
 			track->sendFrame(reinterpret_cast<const rtc::byte *>(sample.data()), sample.size(), rtc::FrameInfo(duration<double, std::micro>(elapsed.count())));
+			if(!media_announced_.exchange(true))
+				send_signal(json{{"type", "state"}, {"state", "streaming"}});
 		}
 	}
 
@@ -816,7 +869,7 @@ private:
 	{
 		auto *bridge = static_cast<WebBridge *>(user);
 		if(event->type == CHIAKI_EVENT_CONNECTED)
-			bridge->send_signal(json{{"type", "state"}, {"state", "streaming"}});
+			bridge->send_signal(json{{"type", "progress"}, {"message", "PlayStation verbonden; wachten op het eerste beeld…"}});
 		else if(event->type == CHIAKI_EVENT_QUIT)
 			bridge->send_signal(json{{"type", "error"}, {"message", std::string("PlayStation Plus stream ended: ") + chiaki_quit_reason_string(event->quit.reason)}});
 	}
@@ -866,6 +919,8 @@ private:
 	std::thread cloud_thread_;
 	std::atomic<bool> provisioning_{false};
 	std::atomic<bool> cancel_provisioning_{false};
+	std::atomic<bool> media_announced_{false};
+	std::atomic<bool> active_hevc_{false};
 	std::mutex client_mutex_;
 	std::mutex session_mutex_;
 	std::mutex media_mutex_;

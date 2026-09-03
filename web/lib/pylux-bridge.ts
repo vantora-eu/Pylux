@@ -13,6 +13,7 @@ export type CloudGame = {
 type BridgeEvents = {
   onStateChange: (state: BridgeState) => void;
   onStream: (stream: MediaStream) => void;
+  onControllerReady: (ready: boolean) => void;
   onCatalog: (games: CloudGame[], warning: string) => void;
   onProgress: (message: string) => void;
   onError: (message: string) => void;
@@ -42,6 +43,8 @@ export class PyluxBridge {
   private socket?: WebSocket;
   private peer?: RTCPeerConnection;
   private input?: RTCDataChannel;
+  private media?: MediaStream;
+  private mediaPublished = false;
   private pairCode = '';
 
   constructor(private readonly endpoint: string, private readonly events: BridgeEvents) {}
@@ -105,22 +108,31 @@ export class PyluxBridge {
     this.socket = undefined;
     this.input = undefined;
     this.peer = undefined;
+    this.media = undefined;
+    this.mediaPublished = false;
+    this.events.onControllerReady(false);
     this.events.onStateChange('idle');
   }
 
   private setupPeer() {
     this.peer?.close();
     this.peer = new RTCPeerConnection({ iceServers: [] });
-    const media = new MediaStream();
+    this.media = new MediaStream();
+    this.mediaPublished = false;
     this.peer.ontrack = ({ track }) => {
-      media.addTrack(track);
-      this.events.onStream(media);
+      this.addRemoteTrack(track);
     };
     this.peer.onicecandidate = ({ candidate }) => {
       if (candidate) this.send({ type: 'ice', candidate: candidate.toJSON() });
     };
     this.peer.ondatachannel = ({ channel }) => {
-      if (channel.label === 'pylux-input') this.input = channel;
+      if (channel.label !== 'pylux-input') return;
+      this.input = channel;
+      const reportReady = () => this.events.onControllerReady(channel.readyState === 'open');
+      channel.onopen = reportReady;
+      channel.onclose = reportReady;
+      channel.onerror = () => this.events.onControllerReady(false);
+      reportReady();
     };
     this.peer.onconnectionstatechange = () => {
       if (this.peer?.connectionState === 'failed') {
@@ -139,6 +151,9 @@ export class PyluxBridge {
       const message = JSON.parse(raw) as SignalMessage;
       if (message.type === 'offer') {
         await this.peer?.setRemoteDescription(message.sdp);
+        // Some embedded Chromium builds do not dispatch `track` for an
+        // offer-created receiver. Populate the same MediaStream explicitly.
+        this.peer?.getReceivers().forEach(({ track }) => this.addRemoteTrack(track));
         const answer = await this.peer?.createAnswer();
         if (answer) {
           await this.peer?.setLocalDescription(answer);
@@ -161,6 +176,16 @@ export class PyluxBridge {
     } catch (cause) {
       this.events.onStateChange('error');
       this.events.onError(cause instanceof Error ? cause.message : 'Ongeldig bericht van de Pylux Bridge.');
+    }
+  }
+
+  private addRemoteTrack(track: MediaStreamTrack) {
+    if (track.kind !== 'audio' && track.kind !== 'video') return;
+    const media = this.media ?? (this.media = new MediaStream());
+    if (!media.getTracks().some((item) => item.id === track.id)) media.addTrack(track);
+    if (!this.mediaPublished) {
+      this.mediaPublished = true;
+      this.events.onStream(media);
     }
   }
 }

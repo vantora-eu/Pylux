@@ -40,6 +40,7 @@ export default function HomePage() {
   const [showControls, setShowControls] = useState(false);
   const [muted, setMuted] = useState(false);
   const [gamepad, setGamepad] = useState(false);
+  const [controllerReady, setControllerReady] = useState(false);
   const [clock, setClock] = useState('');
   const [error, setError] = useState('');
   const [progress, setProgress] = useState('');
@@ -123,9 +124,13 @@ export default function HomePage() {
           const video = videoRef.current;
           if (!video) return;
           video.srcObject = stream;
-          video.muted = muted;
-          void video.play().then(() => setAudioBlocked(false)).catch(() => setAudioBlocked(true));
+          // Tesla's browser may reject delayed autoplay with audio. Start the
+          // picture muted and let the next deliberate tap unlock sound.
+          video.muted = true;
+          setMuted(true);
+          void video.play().then(() => setAudioBlocked(true)).catch(() => setAudioBlocked(true));
         },
+        onControllerReady: setControllerReady,
         onCatalog: (catalog, warning) => {
           setGames(catalog);
           setCatalogWarning(warning);
@@ -138,7 +143,7 @@ export default function HomePage() {
           setSetupError(message);
           setError(message);
         },
-      }), [bridgeUrl, muted]);
+      }), [bridgeUrl]);
 
   const connectAccount = useCallback(async () => {
     setSetupError('');
@@ -215,6 +220,7 @@ export default function HomePage() {
   const launchGame = useCallback((game: CloudGame) => {
     try {
       setSelectedGame(game);
+      setControllerReady(false);
       setShowLibrary(false);
       setError('');
       setProgress('Cloudsessie voorbereiden…');
@@ -230,10 +236,12 @@ export default function HomePage() {
     bridgeRef.current = null;
     if (videoRef.current) videoRef.current.srcObject = null;
     setSessionState('idle');
+    setControllerReady(false);
     setError('');
   }, []);
 
   const active = sessionState === 'streaming' || sessionState === 'demo';
+  const launching = selectedGame !== null && (sessionState === 'connecting' || sessionState === 'provisioning');
   const filteredGames = useMemo(() => {
     const query = gameQuery.trim().toLocaleLowerCase('nl-NL');
     return games.filter((game) => {
@@ -271,7 +279,7 @@ export default function HomePage() {
             <button className="floating-button" aria-label={fullscreen ? 'Volledig scherm sluiten' : 'Volledig scherm'} onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={23} /> : <Expand size={23} />}</button>
           </div>
 
-          {!active && (
+          {!active && !launching && (
             <div className="launch-copy">
               <p className="eyebrow">PlayStation Plus Cloud Streaming</p>
               <h2>Je gamecatalogus.<br />Direct in de Tesla.</h2>
@@ -284,13 +292,23 @@ export default function HomePage() {
             </div>
           )}
 
+          {launching && (
+            <output className="launch-copy launch-progress" aria-live="polite">
+              <span className="launch-spinner" aria-hidden="true" />
+              <p className="eyebrow">Cloudsessie wordt gestart</p>
+              <h2>{selectedGame.name}</h2>
+              <p className="progress-message">{progress || 'PlayStation Plus maakt de stream gereed…'}</p>
+              <p className="launch-patience">Dit kan ongeveer 20–40 seconden duren. Laat deze pagina open.</p>
+            </output>
+          )}
+
           {active && (
             <div className="session-overlay">
               <div><p className="eyebrow">PlayStation Plus Cloud</p><h2>{selectedGame?.name ?? 'Speelklaar'}</h2></div>
               {sessionState === 'demo' && <span className="demo-badge">Interface-demo</span>}
             </div>
           )}
-          {active && audioBlocked && !muted && <button className="audio-unlock" onClick={resumeAudio}><Volume2 /> Tik voor geluid</button>}
+          {active && audioBlocked && <button className="audio-unlock" onClick={resumeAudio}><Volume2 /> Tik voor geluid</button>}
           {active && showTouchControls && (
             <div className="touch-controller" aria-label="Touchcontroller">
               <div className="touch-dpad">
@@ -320,7 +338,7 @@ export default function HomePage() {
             <div className="console-info">
               <div className="section-kicker"><StatusDot state={sessionState} /> PlayStation Plus</div>
               <h2>Cloud Gaming</h2>
-              <p>{active ? `${selectedGame?.name ?? 'Cloudstream'} actief` : 'Catalogus · klaar om te verbinden'}</p>
+              <p>{active ? `${selectedGame?.name ?? 'Cloudstream'} actief` : launching ? `${selectedGame?.name ?? 'Game'} wordt gestart` : 'Catalogus · klaar om te verbinden'}</p>
             </div>
             <button className="more-button" aria-label="Meer console-opties"><MoreHorizontal size={28} /></button>
           </div>
@@ -339,10 +357,10 @@ export default function HomePage() {
             </div>
           </div>
 
-          <button className={`gamepad-card ${gamepad ? 'connected' : ''}`} onClick={() => setShowControls((value) => !value)}>
+          <button className={`gamepad-card ${gamepad && controllerReady ? 'connected' : ''}`} onClick={() => setShowControls((value) => !value)}>
             <span className="gamepad-icon"><Gamepad2 size={35} /></span>
-            <span><strong>{gamepad ? 'Controller verbonden' : 'Controller & touch'}</strong>
-              <small>{gamepad ? 'Gamepad API actief' : 'Bekijk de bediening'}</small></span>
+            <span><strong>{gamepad && controllerReady ? 'Controller speelklaar' : gamepad ? 'Controller gevonden' : controllerReady ? 'Touchbediening speelklaar' : 'Controller & touch'}</strong>
+              <small>{gamepad && controllerReady ? 'Verbonden met PlayStation' : gamepad ? 'Start de stream om te verbinden' : controllerReady ? 'Tik voor touchzones of koppel Bluetooth' : 'Tik voor koppelen of touchzones'}</small></span>
             <CircleHelp size={24} />
           </button>
 
@@ -351,7 +369,7 @@ export default function HomePage() {
             <button><Gauge size={27} /><span>Kwaliteit</span></button>
             <button onClick={toggleFullscreen}><MonitorUp size={27} /><span>{fullscreen ? 'Sluiten' : 'Scherm'}</span></button>
           </div>
-          {active && <button className="stop-button" onClick={stopSession}><X size={22} /> Sessie stoppen</button>}
+          {(active || launching) && <button className="stop-button" onClick={stopSession}><X size={22} /> Sessie stoppen</button>}
         </aside>
       </section>
 
@@ -368,7 +386,7 @@ export default function HomePage() {
           <button className="sheet-close" onClick={() => setShowControls(false)} aria-label="Sluiten"><X /></button>
           <p className="eyebrow">Bediening</p><h2 id="controls-title">Kies wat prettig speelt</h2>
           <div className="control-options">
-            <div><Gamepad2 /><strong>Bluetooth-controller</strong><span>Koppel de controller aan je Tesla en herlaad de pagina.</span></div>
+            <div><Gamepad2 /><strong>Bluetooth-controller</strong><span>{gamepad ? controllerReady ? 'Verbonden met de PlayStation-stream en speelklaar.' : 'Controller gevonden. Wacht tot de stream volledig gestart is.' : 'Koppel hem aan de Tesla en druk daarna één knop in.'}</span></div>
             <button onClick={() => { setShowTouchControls((value) => !value); setShowControls(false); }}><Maximize2 /><strong>Touchzones</strong><span>{showTouchControls ? 'Verberg de virtuele controller.' : 'Toon een virtuele controller boven de stream.'}</span></button>
           </div>
         </dialog>
