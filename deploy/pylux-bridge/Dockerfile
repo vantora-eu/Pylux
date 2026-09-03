@@ -24,7 +24,7 @@ FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates libjson-c5 libminiupnpc17t64 libopus0 libssl3t64 netcat-openbsd \
+    ca-certificates libjson-c5 libminiupnpc17 libopus0 libssl3t64 netcat-openbsd \
     && rm -rf /var/lib/apt/lists/* \
     && useradd --system --uid 10001 --home /var/lib/pylux --shell /usr/sbin/nologin pylux \
     && install -d -o pylux -g pylux -m 0700 /var/lib/pylux /var/lib/pylux/catalog /var/lib/pylux/secrets
