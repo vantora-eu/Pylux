@@ -20,9 +20,9 @@ cmake --build build-web-bridge --target pylux-web-bridge -j
 ```
 
 Copy `.env.example` to a private shell environment and export the values before starting the
-binary. `PYLUX_NPSSO` is the value of the PlayStation `npsso` cookie, without the `npsso=` prefix.
-The bridge uses it to fetch the authenticated Plus catalog and provision the selected game. The
-token never enters the browser and must never be committed.
+binary. `PYLUX_NPSSO` is optional: it can be supplied at startup or entered once through the local
+web setup wizard. The bridge only retains a wizard-supplied token in process memory. It is cleared
+from the form after validation and is never written to browser storage or committed.
 
 ```bash
 ./build-web-bridge/web-bridge/pylux-web-bridge
@@ -37,6 +37,7 @@ to `wss://`; it will reject an insecure `ws://` bridge as mixed content.
 - A pairing code is mandatory before the catalog or a cloud session is created.
 - Only one active browser session is allowed.
 - Closing the signaling socket cancels provisioning and stops Cloud Streaming.
-- The bridge never sends the NPSSO token to the browser.
+- The bridge never sends the NPSSO token back to the browser or writes it to disk.
+- The setup wizard only accepts a token after authenticating with the bridge pairing code.
 - For internet use, add authenticated TURN and place the signaling endpoint behind a hardened
   reverse proxy. Do not expose the development listener directly to the public internet.

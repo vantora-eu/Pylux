@@ -1,9 +1,9 @@
 # Pylux for Tesla Web
 
-A 1920×1200, touch-first PlayStation Plus Cloud Streaming surface for Pylux. The native bridge
-keeps the NPSSO token private, supplies the authenticated cloud catalog, and forwards the chosen
-game's audio/video through WebRTC. Without a configured bridge URL, the interface starts in
-clearly labelled demo mode.
+A 1920×1200, touch-first PlayStation Plus Cloud Streaming surface for Pylux. A three-step setup
+wizard passes the NPSSO token once to the native bridge, which keeps it in process memory, supplies
+the authenticated cloud catalog, and forwards the chosen game's audio/video through WebRTC. The
+token is never written to browser storage.
 
 ## Run locally
 

@@ -120,7 +120,7 @@ struct BridgeConfig
 	static BridgeConfig load()
 	{
 		BridgeConfig config;
-		config.npsso = required_env("PYLUX_NPSSO");
+		config.npsso = optional_env("PYLUX_NPSSO", "");
 		config.locale = optional_env("PYLUX_CLOUD_LOCALE", "nl-NL");
 		config.cache_dir = optional_env("PYLUX_CLOUD_CACHE_DIR", "/tmp/pylux-web-catalog");
 		config.forced_datacenter = optional_env("PYLUX_CLOUD_DATACENTER", "Auto");
@@ -133,7 +133,7 @@ struct BridgeConfig
 		config.tls_key = optional_env("PYLUX_TLS_KEY", "");
 		config.ice_servers = split_csv(optional_env("PYLUX_ICE_SERVERS", ""));
 
-		if(config.npsso.size() < 16)
+		if(!config.npsso.empty() && config.npsso.size() < 16)
 			throw std::runtime_error("PYLUX_NPSSO does not look like a valid NPSSO token");
 		if(config.pair_code.size() < 6)
 			throw std::runtime_error("PYLUX_PAIR_CODE must contain at least 6 characters");
@@ -270,7 +270,7 @@ private:
 		{
 			const json message = json::parse(raw);
 			const std::string type = message.value("type", "");
-			if(type == "catalog" || type == "start")
+			if(type == "configure" || type == "catalog" || type == "start")
 			{
 				if(!secure_equals(message.value("pairCode", ""), config_.pair_code))
 				{
@@ -278,7 +278,23 @@ private:
 					socket->close();
 					return;
 				}
-				if(type == "catalog")
+				if(type == "configure")
+				{
+					const std::string token = message.value("npsso", "");
+					if(token.size() < 16 || token.size() > 4096)
+						throw std::runtime_error("NPSSO token has an invalid length");
+					{
+						std::lock_guard<std::mutex> lock(session_mutex_);
+						if(session_ || provisioning_)
+							throw std::runtime_error("Stop the active stream before changing the PlayStation account");
+					}
+					config_.npsso = token;
+					socket->send(json{{"type", "configured"}}.dump());
+					fetch_catalog(socket, true);
+				}
+				else if(config_.npsso.empty())
+					throw std::runtime_error("PlayStation account is not configured; use the setup wizard first");
+				else if(type == "catalog")
 					fetch_catalog(socket, message.value("forceRefresh", false));
 				else
 				{

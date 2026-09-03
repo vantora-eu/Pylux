@@ -5,6 +5,7 @@ discriminator.
 
 ## Browser to bridge
 
+- `configure`: `{ type, pairCode, npsso }` (one-time local setup; the token is not persisted)
 - `catalog`: `{ type, pairCode, forceRefresh?: boolean }`
 - `start`: `{ type, pairCode, productId, profile: { video: "720p" | "1080p", fps: 30 | 60, hdr: boolean } }`
 - `answer`: `{ type, sdp: RTCSessionDescriptionInit }`
@@ -16,6 +17,7 @@ button, stick and trigger values.
 
 ## Bridge to browser
 
+- `configured`: `{ type }`
 - `catalog`: `{ type, games: CloudGame[], warning?: string }`
 - `offer`: `{ type, sdp: RTCSessionDescriptionInit }`
 - `ice`: `{ type, candidate: RTCIceCandidateInit }`
@@ -23,7 +25,7 @@ button, stick and trigger values.
 - `progress`: `{ type, message }`
 - `error`: `{ type, message: string }`
 
-The native bridge owns the NPSSO token, catalog fetch, Plus entitlement validation and cloud
-session provisioning. It sends neither NPSSO nor allocation credentials to the browser. Every
-catalog/start request requires the pairing code, and deployments must use TLS (`wss://`) outside
-localhost.
+The native bridge owns the NPSSO token after initial setup, catalog fetch, Plus entitlement
+validation and cloud session provisioning. It sends neither NPSSO nor allocation credentials back
+to the browser and does not persist a wizard-supplied token. Every configure/catalog/start request
+requires the pairing code, and deployments must use TLS (`wss://`) outside localhost.

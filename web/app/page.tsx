@@ -1,8 +1,9 @@
 'use client';
 
 import {
-  BatteryCharging, CircleHelp, Expand, Gamepad2, Gauge, House, Maximize2,
-  MonitorUp, MoreHorizontal, Power, Radio, Settings, Signal, Volume2, Wifi, X,
+  ArrowLeft, BatteryCharging, Check, CircleHelp, Expand, Eye, EyeOff, Gamepad2,
+  Gauge, House, KeyRound, LockKeyhole, Maximize2, MonitorUp, MoreHorizontal,
+  Power, Radio, Settings, ShieldCheck, Signal, Volume2, Wifi, X,
 } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { PyluxBridge, type BridgeState, type CloudGame } from '@/lib/pylux-bridge';
@@ -42,6 +43,13 @@ export default function HomePage() {
   const [catalogWarning, setCatalogWarning] = useState('');
   const [showLibrary, setShowLibrary] = useState(false);
   const [selectedGame, setSelectedGame] = useState<CloudGame | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(true);
+  const [wizardStep, setWizardStep] = useState(1);
+  const [npsso, setNpsso] = useState('');
+  const [showToken, setShowToken] = useState(false);
+  const [bridgeUrl, setBridgeUrl] = useState('ws://127.0.0.1:8080');
+  const [pairCode, setPairCode] = useState('pylux-tesla');
+  const [setupError, setSetupError] = useState('');
   const videoRef = useRef<HTMLVideoElement>(null);
   const bridgeRef = useRef<PyluxBridge | null>(null);
 
@@ -87,35 +95,52 @@ export default function HomePage() {
 
   const startSession = useCallback(async () => {
     setError('');
-    const endpoint = process.env.NEXT_PUBLIC_PYLUX_BRIDGE_URL;
-    if (!endpoint) {
-      setSessionState('connecting');
-      window.setTimeout(() => setSessionState('demo'), 1050);
+    if (games.length > 0 && bridgeRef.current) {
+      setShowLibrary(true);
       return;
     }
+    setWizardOpen(true);
+    setWizardStep(1);
+  }, [games.length]);
+
+  const connectAccount = useCallback(async () => {
+    setSetupError('');
+    if (npsso.trim().length < 16) {
+      setSetupError('Dit token lijkt te kort. Kopieer alleen de waarde achter npsso=.');
+      return;
+    }
+    if (!bridgeUrl.startsWith('ws://') && !bridgeUrl.startsWith('wss://')) {
+      setSetupError('Gebruik een adres dat begint met ws:// of wss://.');
+      return;
+    }
+    setWizardStep(3);
+    setProgress('Veilig verbinden met de lokale bridge…');
     try {
-      const savedCode = window.sessionStorage.getItem('pylux-pair-code') ?? '';
-      const pairCode = savedCode || window.prompt('Voer de koppelcode van de Pylux Bridge in:') || '';
-      if (!pairCode) throw new Error('Er is geen koppelcode ingevoerd.');
-      window.sessionStorage.setItem('pylux-pair-code', pairCode);
-      const bridge = new PyluxBridge(endpoint, {
+      const bridge = new PyluxBridge(bridgeUrl, {
         onStateChange: setSessionState,
         onStream: (stream) => { if (videoRef.current) videoRef.current.srcObject = stream; },
         onCatalog: (catalog, warning) => {
           setGames(catalog);
           setCatalogWarning(warning);
+          setNpsso('');
+          setWizardOpen(false);
           setShowLibrary(true);
         },
         onProgress: setProgress,
-        onError: setError,
+        onError: (message) => {
+          setSetupError(message);
+          setError(message);
+        },
       });
       bridgeRef.current = bridge;
-      await bridge.loadCatalog(pairCode);
+      await bridge.configureAndLoadCatalog(pairCode, npsso.trim());
     } catch (cause) {
       setSessionState('error');
-      setError(cause instanceof Error ? cause.message : 'De Pylux Bridge reageert niet.');
+      const message = cause instanceof Error ? cause.message : 'De Pylux Bridge reageert niet.';
+      setSetupError(message);
+      setError(message);
     }
-  }, []);
+  }, [bridgeUrl, npsso, pairCode]);
 
   const launchGame = useCallback((game: CloudGame) => {
     try {
@@ -151,7 +176,7 @@ export default function HomePage() {
         <div className="top-status" aria-label="Systeemstatus">
           <span className="vehicle-mode"><BatteryCharging size={23} /> Geparkeerd</span>
           <span><Wifi size={23} /> Wi-Fi</span><span className="clock">{clock}</span>
-          <button className="icon-button" aria-label="Instellingen"><Settings size={27} /></button>
+          <button className="icon-button" aria-label="Instellingen" onClick={() => { setWizardOpen(true); setWizardStep(1); }}><Settings size={27} /></button>
         </div>
       </header>
 
@@ -268,6 +293,80 @@ export default function HomePage() {
             ))}
           </div>
           {games.length === 0 && <p className="empty-library">Geen streambare games gevonden voor dit account.</p>}
+        </dialog>
+      )}
+
+      {wizardOpen && (
+        <dialog open className="setup-wizard" aria-labelledby="setup-title">
+          <div className="wizard-rail" aria-label={`Stap ${wizardStep} van 3`}>
+            {[1, 2, 3].map((step) => (
+              <span key={step} className={step <= wizardStep ? 'active' : ''}>
+                {step < wizardStep ? <Check size={17} /> : step}
+              </span>
+            ))}
+          </div>
+          {wizardStep < 3 && (
+            <button className="sheet-close" onClick={() => setWizardOpen(false)} aria-label="Wizard sluiten"><X /></button>
+          )}
+
+          {wizardStep === 1 && (
+            <div className="wizard-content">
+              <span className="wizard-icon"><ShieldCheck size={38} /></span>
+              <p className="eyebrow">Eenmalige installatie</p>
+              <h2 id="setup-title">Koppel PlayStation Plus</h2>
+              <p className="wizard-lead">Je NPSSO-token wordt rechtstreeks naar de Pylux Bridge op je eigen netwerk gestuurd. De webpagina bewaart het token niet.</p>
+              <div className="privacy-points">
+                <div><LockKeyhole /><span><strong>Alleen lokaal</strong><small>Niet in cookies of browseropslag</small></span></div>
+                <div><Gamepad2 /><span><strong>Geen console nodig</strong><small>Voor Plus Premium-cloudgames</small></span></div>
+              </div>
+              <button className="wizard-primary" onClick={() => setWizardStep(2)}>Token instellen</button>
+              <p className="wizard-note">Gebruik dit alleen terwijl de auto geparkeerd staat.</p>
+            </div>
+          )}
+
+          {wizardStep === 2 && (
+            <form className="wizard-content" onSubmit={(event) => { event.preventDefault(); void connectAccount(); }}>
+              <button type="button" className="wizard-back" onClick={() => setWizardStep(1)}><ArrowLeft size={20} /> Terug</button>
+              <span className="wizard-icon"><KeyRound size={36} /></span>
+              <p className="eyebrow">PlayStation-account</p>
+              <h2 id="setup-title">Voer je NPSSO-token in</h2>
+              <p className="wizard-lead compact">Plak alleen de lange tokenwaarde, zonder <strong>npsso=</strong>. Deze wordt na de controle direct uit het formulier gewist.</p>
+              <label className="setup-label" htmlFor="npsso">NPSSO-token</label>
+              <div className="token-field">
+                <input id="npsso" type={showToken ? 'text' : 'password'} value={npsso} onChange={(event) => { setNpsso(event.target.value); setSetupError(''); }} placeholder="Plak je token hier" autoComplete="off" autoCapitalize="none" spellCheck={false} autoFocus />
+                <button type="button" onClick={() => setShowToken((value) => !value)} aria-label={showToken ? 'Token verbergen' : 'Token tonen'}>{showToken ? <EyeOff /> : <Eye />}</button>
+              </div>
+              <details className="advanced-settings">
+                <summary>Bridge-instellingen</summary>
+                <div className="advanced-grid">
+                  <label>Bridge-adres<input value={bridgeUrl} onChange={(event) => setBridgeUrl(event.target.value)} autoCapitalize="none" spellCheck={false} /></label>
+                  <label>Koppelcode<input value={pairCode} onChange={(event) => setPairCode(event.target.value)} autoComplete="off" /></label>
+                </div>
+              </details>
+              {setupError && <p className="wizard-error">{setupError}</p>}
+              <button className="wizard-primary" type="submit">Account controleren</button>
+            </form>
+          )}
+
+          {wizardStep === 3 && (
+            <div className="wizard-content wizard-checking">
+              <span className="checking-orbit"><span /></span>
+              <p className="eyebrow">Beveiligde controle</p>
+              <h2 id="setup-title">PlayStation Plus wordt gekoppeld</h2>
+              <p className="wizard-lead">{progress || 'De lokale bridge controleert je account en haalt de cloudcatalogus op…'}</p>
+              <div className="check-list">
+                <span className="done"><Check /> Lokale bridge gevonden</span>
+                <span className={progress.includes('catalogus') ? 'done' : ''}><Check /> Token versleuteld doorgegeven</span>
+                <span><Check /> Cloudcatalogus laden</span>
+              </div>
+              {setupError && (
+                <div className="wizard-failure">
+                  <p>{setupError}</p>
+                  <button onClick={() => setWizardStep(2)}>Gegevens aanpassen</button>
+                </div>
+              )}
+            </div>
+          )}
         </dialog>
       )}
     </main>
