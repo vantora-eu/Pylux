@@ -2,10 +2,11 @@
 
 import {
   ArrowLeft, BatteryCharging, Check, CircleHelp, Expand, Eye, EyeOff, Gamepad2,
-  Gauge, House, KeyRound, LockKeyhole, Maximize2, MonitorUp, MoreHorizontal,
-  Power, Radio, Settings, ShieldCheck, Signal, Volume2, Wifi, X,
+  Gauge, House, KeyRound, LockKeyhole, Maximize2, Minimize2, MonitorUp,
+  MoreHorizontal, Power, Radio, Search, Settings, ShieldCheck, Signal, Volume2,
+  VolumeX, Wifi, X,
 } from 'lucide-react';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PyluxBridge, type BridgeState, type CloudGame } from '@/lib/pylux-bridge';
 
 type SessionState = BridgeState | 'demo';
@@ -23,9 +24,12 @@ function StatusDot({ state }: { state: SessionState }) {
 function gamepadButtonMask(pad: Gamepad) {
   const mapping: Array<[number, number]> = [
     [0, 0], [1, 1], [2, 2], [3, 3], [12, 6], [13, 7], [14, 4], [15, 5],
-    [4, 8], [5, 9], [10, 10], [11, 11], [9, 12], [8, 13], [16, 15],
+    [4, 8], [5, 9], [10, 10], [11, 11], [9, 12], [8, 13], [17, 14], [16, 15],
   ];
-  return mapping.reduce((mask, [button, bit]) => pad.buttons[button]?.pressed ? mask | (1 << bit) : mask, 0);
+  const digital = mapping.reduce((mask, [button, bit]) => pad.buttons[button]?.pressed ? mask | (1 << bit) : mask, 0);
+  return digital
+    | ((pad.buttons[6]?.value ?? 0) > 0.08 ? (1 << 16) : 0)
+    | ((pad.buttons[7]?.value ?? 0) > 0.08 ? (1 << 17) : 0);
 }
 
 const axis = (value = 0) => Math.max(-32768, Math.min(32767, Math.round(value * 32767)));
@@ -50,8 +54,17 @@ export default function HomePage() {
   const [bridgeUrl, setBridgeUrl] = useState('ws://127.0.0.1:8080');
   const [pairCode, setPairCode] = useState('pylux-tesla');
   const [setupError, setSetupError] = useState('');
+  const [gameQuery, setGameQuery] = useState('');
+  const [gameFilter, setGameFilter] = useState<'all' | 'owned'>('all');
+  const [visibleGameCount, setVisibleGameCount] = useState(72);
+  const [fullscreen, setFullscreen] = useState(false);
+  const [fullscreenFallback, setFullscreenFallback] = useState(false);
+  const [audioBlocked, setAudioBlocked] = useState(false);
+  const [showTouchControls, setShowTouchControls] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
+  const streamPanelRef = useRef<HTMLElement>(null);
   const bridgeRef = useRef<PyluxBridge | null>(null);
+  const touchButtonsRef = useRef(0);
 
   useEffect(() => {
     const updateClock = () => setClock(new Intl.DateTimeFormat('nl-NL', {
@@ -63,7 +76,7 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
-    const syncGamepad = () => setGamepad(navigator.getGamepads?.().some(Boolean) ?? false);
+    const syncGamepad = () => setGamepad(Array.from(navigator.getGamepads?.() ?? []).some((item) => item?.connected));
     window.addEventListener('gamepadconnected', syncGamepad);
     window.addEventListener('gamepaddisconnected', syncGamepad);
     syncGamepad();
@@ -78,13 +91,13 @@ export default function HomePage() {
   useEffect(() => {
     let animationFrame = 0;
     const forwardController = () => {
-      const pad = navigator.getGamepads?.().find(Boolean);
-      if (pad && bridgeRef.current) {
+      const pad = Array.from(navigator.getGamepads?.() ?? []).find((item) => item?.connected);
+      if (bridgeRef.current) {
         bridgeRef.current.sendControllerState({
-          b: gamepadButtonMask(pad),
-          lx: axis(pad.axes[0]), ly: axis(pad.axes[1]),
-          rx: axis(pad.axes[2]), ry: axis(pad.axes[3]),
-          l2: trigger(pad.buttons[6]?.value), r2: trigger(pad.buttons[7]?.value),
+          b: (pad ? gamepadButtonMask(pad) : 0) | touchButtonsRef.current,
+          lx: axis(pad?.axes[0]), ly: axis(pad?.axes[1]),
+          rx: axis(pad?.axes[2]), ry: axis(pad?.axes[3]),
+          l2: trigger(pad?.buttons[6]?.value), r2: trigger(pad?.buttons[7]?.value),
         });
       }
       animationFrame = window.requestAnimationFrame(forwardController);
@@ -118,7 +131,13 @@ export default function HomePage() {
     try {
       const bridge = new PyluxBridge(bridgeUrl, {
         onStateChange: setSessionState,
-        onStream: (stream) => { if (videoRef.current) videoRef.current.srcObject = stream; },
+        onStream: (stream) => {
+          const video = videoRef.current;
+          if (!video) return;
+          video.srcObject = stream;
+          video.muted = muted;
+          void video.play().then(() => setAudioBlocked(false)).catch(() => setAudioBlocked(true));
+        },
         onCatalog: (catalog, warning) => {
           setGames(catalog);
           setCatalogWarning(warning);
@@ -140,7 +159,38 @@ export default function HomePage() {
       setSetupError(message);
       setError(message);
     }
-  }, [bridgeUrl, npsso, pairCode]);
+  }, [bridgeUrl, muted, npsso, pairCode]);
+
+  const toggleFullscreen = useCallback(() => {
+    const next = !fullscreenFallback;
+    setFullscreenFallback(next);
+    setFullscreen(next);
+  }, [fullscreenFallback]);
+
+  const toggleSound = useCallback(() => {
+    const video = videoRef.current;
+    const nextMuted = !muted;
+    setMuted(nextMuted);
+    if (video) {
+      video.muted = nextMuted;
+      if (!nextMuted) {
+        void video.play().then(() => setAudioBlocked(false)).catch(() => setAudioBlocked(true));
+      }
+    }
+  }, [muted]);
+
+  const resumeAudio = useCallback(() => {
+    const video = videoRef.current;
+    setMuted(false);
+    if (!video) return;
+    video.muted = false;
+    void video.play().then(() => setAudioBlocked(false)).catch(() => setAudioBlocked(true));
+  }, []);
+
+  const setTouchButton = useCallback((bit: number, pressed: boolean) => {
+    if (pressed) touchButtonsRef.current |= (1 << bit);
+    else touchButtonsRef.current &= ~(1 << bit);
+  }, []);
 
   const launchGame = useCallback((game: CloudGame) => {
     try {
@@ -164,6 +214,14 @@ export default function HomePage() {
   }, []);
 
   const active = sessionState === 'streaming' || sessionState === 'demo';
+  const filteredGames = useMemo(() => {
+    const query = gameQuery.trim().toLocaleLowerCase('nl-NL');
+    return games.filter((game) => {
+      if (gameFilter === 'owned' && !game.isOwned) return false;
+      return !query || game.name.toLocaleLowerCase('nl-NL').includes(query);
+    });
+  }, [gameFilter, gameQuery, games]);
+  const visibleGames = filteredGames.slice(0, visibleGameCount);
 
   return (
     <main className="tesla-shell">
@@ -181,7 +239,7 @@ export default function HomePage() {
       </header>
 
       <section className="workspace">
-        <article className={`stream-panel ${active ? 'is-active' : ''}`}>
+        <article ref={streamPanelRef} className={`stream-panel ${active ? 'is-active' : ''} ${fullscreenFallback ? 'fullscreen-fallback' : ''}`}>
           {/* oxlint-disable-next-line next/no-img-element */}
           <img className="stream-poster" src="/pylux-home.jpg" alt="Pylux PlayStation-startscherm" />
           <video ref={videoRef} autoPlay playsInline muted={muted} className="remote-video">
@@ -190,7 +248,7 @@ export default function HomePage() {
           <div className="stream-shade" />
           <div className="stream-topline">
             <span className="quality-pill"><Signal size={19} /> 1080p · 60 fps</span>
-            <button className="floating-button" aria-label="Volledig scherm"><Expand size={23} /></button>
+            <button className="floating-button" aria-label={fullscreen ? 'Volledig scherm sluiten' : 'Volledig scherm'} onClick={toggleFullscreen}>{fullscreen ? <Minimize2 size={23} /> : <Expand size={23} />}</button>
           </div>
 
           {!active && (
@@ -210,6 +268,26 @@ export default function HomePage() {
             <div className="session-overlay">
               <div><p className="eyebrow">PlayStation Plus Cloud</p><h2>{selectedGame?.name ?? 'Speelklaar'}</h2></div>
               {sessionState === 'demo' && <span className="demo-badge">Interface-demo</span>}
+            </div>
+          )}
+          {active && audioBlocked && !muted && <button className="audio-unlock" onClick={resumeAudio}><Volume2 /> Tik voor geluid</button>}
+          {active && showTouchControls && (
+            <div className="touch-controller" aria-label="Touchcontroller">
+              <div className="touch-dpad">
+                {[[6, '↑'], [4, '←'], [5, '→'], [7, '↓']].map(([bit, label]) => (
+                  <button key={bit} className={`dpad-${bit}`} onPointerDown={() => setTouchButton(Number(bit), true)} onPointerUp={() => setTouchButton(Number(bit), false)} onPointerCancel={() => setTouchButton(Number(bit), false)}>{label}</button>
+                ))}
+              </div>
+              <div className="touch-center">
+                <button onPointerDown={() => setTouchButton(13, true)} onPointerUp={() => setTouchButton(13, false)}>Share</button>
+                <button onPointerDown={() => setTouchButton(15, true)} onPointerUp={() => setTouchButton(15, false)}>PS</button>
+                <button onPointerDown={() => setTouchButton(12, true)} onPointerUp={() => setTouchButton(12, false)}>Options</button>
+              </div>
+              <div className="touch-face">
+                {[[3, '△'], [2, '□'], [1, '○'], [0, '×']].map(([bit, label]) => (
+                  <button key={bit} className={`face-${bit}`} onPointerDown={() => setTouchButton(Number(bit), true)} onPointerUp={() => setTouchButton(Number(bit), false)} onPointerCancel={() => setTouchButton(Number(bit), false)}>{label}</button>
+                ))}
+              </div>
             </div>
           )}
         </article>
@@ -249,9 +327,9 @@ export default function HomePage() {
           </button>
 
           <div className="quick-actions">
-            <button onClick={() => setMuted((value) => !value)} className={muted ? 'selected' : ''}><Volume2 size={27} /><span>{muted ? 'Gedempt' : 'Geluid'}</span></button>
+            <button onClick={toggleSound} className={muted ? 'selected' : ''}>{muted ? <VolumeX size={27} /> : <Volume2 size={27} />}<span>{muted ? 'Geluid aan' : 'Geluid'}</span></button>
             <button><Gauge size={27} /><span>Kwaliteit</span></button>
-            <button><MonitorUp size={27} /><span>Scherm</span></button>
+            <button onClick={toggleFullscreen}><MonitorUp size={27} /><span>{fullscreen ? 'Sluiten' : 'Scherm'}</span></button>
           </div>
           {active && <button className="stop-button" onClick={stopSession}><X size={22} /> Sessie stoppen</button>}
         </aside>
@@ -271,7 +349,7 @@ export default function HomePage() {
           <p className="eyebrow">Bediening</p><h2 id="controls-title">Kies wat prettig speelt</h2>
           <div className="control-options">
             <div><Gamepad2 /><strong>Bluetooth-controller</strong><span>Koppel de controller aan je Tesla en herlaad de pagina.</span></div>
-            <div><Maximize2 /><strong>Touchzones</strong><span>Tik op het streambeeld om de virtuele DualSense-laag te tonen.</span></div>
+            <button onClick={() => { setShowTouchControls((value) => !value); setShowControls(false); }}><Maximize2 /><strong>Touchzones</strong><span>{showTouchControls ? 'Verberg de virtuele controller.' : 'Toon een virtuele controller boven de stream.'}</span></button>
           </div>
         </dialog>
       )}
@@ -283,16 +361,33 @@ export default function HomePage() {
             <button className="sheet-close" onClick={() => setShowLibrary(false)} aria-label="Sluiten"><X /></button>
           </div>
           {catalogWarning && <p className="catalog-warning">{catalogWarning}</p>}
+          <div className="catalog-toolbar">
+            <label className="catalog-search">
+              <Search size={22} />
+              <input value={gameQuery} onChange={(event) => { setGameQuery(event.target.value); setVisibleGameCount(72); }} placeholder="Zoek in de cloudcatalogus" aria-label="Games zoeken" />
+              {gameQuery && <button onClick={() => setGameQuery('')} aria-label="Zoekopdracht wissen"><X size={19} /></button>}
+            </label>
+            <fieldset className="catalog-filters" aria-label="Catalogusfilter">
+              <button className={gameFilter === 'all' ? 'active' : ''} onClick={() => { setGameFilter('all'); setVisibleGameCount(72); }}>Alles</button>
+              <button className={gameFilter === 'owned' ? 'active' : ''} onClick={() => { setGameFilter('owned'); setVisibleGameCount(72); }}>Mijn games</button>
+            </fieldset>
+            <span className="catalog-count">{filteredGames.length.toLocaleString('nl-NL')} games</span>
+          </div>
           <div className="game-grid">
-            {games.map((game) => (
+            {visibleGames.map((game) => (
               <button key={game.productId} className="game-tile" onClick={() => launchGame(game)}>
                 {/* oxlint-disable-next-line next/no-img-element */}
-                <img src={game.imageUrl || game.landscapeImageUrl || '/pylux-home.jpg'} alt="" />
+                <img src={game.imageUrl || game.landscapeImageUrl || '/pylux-home.jpg'} alt="" loading="lazy" />
                 <span><strong>{game.name}</strong><small>{game.platform.toUpperCase()} · {game.isOwned ? 'In bibliotheek' : 'PS Plus'}</small></span>
               </button>
             ))}
+            {visibleGames.length < filteredGames.length && (
+              <button className="load-more" onClick={() => setVisibleGameCount((count) => count + 72)}>
+                Toon meer <small>{visibleGames.length} van {filteredGames.length.toLocaleString('nl-NL')}</small>
+              </button>
+            )}
           </div>
-          {games.length === 0 && <p className="empty-library">Geen streambare games gevonden voor dit account.</p>}
+          {filteredGames.length === 0 && <p className="empty-library">Geen streambare games gevonden met deze filters.</p>}
         </dialog>
       )}
 
