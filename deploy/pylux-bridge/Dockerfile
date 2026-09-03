@@ -18,7 +18,7 @@ RUN cmake -S . -B /build -G Ninja \
       -DCHIAKI_ENABLE_STEAMDECK_NATIVE=OFF \
       -DCHIAKI_ENABLE_STEAM_SHORTCUT=OFF \
       -DCHIAKI_ENABLE_SETSU=OFF \
-    && cmake --build /build --target pylux-web-bridge -j 1
+    && cmake --build /build --target pylux-web-bridge -j 2
 
 FROM ubuntu:24.04
 
