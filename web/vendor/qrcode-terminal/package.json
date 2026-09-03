@@ -1,0 +1,7 @@
+{
+  "name": "qrcode-terminal",
+  "version": "0.12.0-pylux",
+  "private": true,
+  "main": "./vendor/QRCode/index.js",
+  "license": "Apache-2.0"
+}

@@ -3,11 +3,12 @@
 import {
   ArrowLeft, BatteryCharging, Check, CircleHelp, Expand, Eye, EyeOff, Gamepad2,
   Gauge, House, KeyRound, LockKeyhole, Maximize2, Minimize2, MonitorUp,
-  MoreHorizontal, Power, Radio, Search, Settings, ShieldCheck, Signal, Volume2,
+  MoreHorizontal, Power, QrCode, Radio, Search, Settings, ShieldCheck, Signal, Smartphone, Volume2,
   VolumeX, Wifi, X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PyluxBridge, type BridgeState, type CloudGame } from '@/lib/pylux-bridge';
+import QRCode from 'qrcode-terminal';
+import { completePhonePairing, PyluxBridge, type BridgeState, type CloudGame, type PairChallenge } from '@/lib/pylux-bridge';
 
 type SessionState = BridgeState | 'demo';
 
@@ -53,6 +54,84 @@ const initialPairCode = () => {
 const assetUrl = (filename: string) => isHostedPlayPage() ? `/play/${filename}` : `/${filename}`;
 
 export default function HomePage() {
+  const pairingToken = typeof window === 'undefined' ? '' : new URLSearchParams(window.location.hash.slice(1)).get('pair') ?? '';
+  return pairingToken ? <PhonePairing pairingToken={pairingToken} /> : <TeslaHome />;
+}
+
+function PairingQr({ value }: { value: string }) {
+  const qr = useMemo(() => {
+    const model = new QRCode(-1, 1);
+    model.addData(value);
+    model.make();
+    return model;
+  }, [value]);
+  const size = qr.getModuleCount();
+  const cells = [];
+  for (let row = 0; row < size; row += 1) {
+    for (let column = 0; column < size; column += 1) {
+      if (qr.isDark(row, column)) cells.push(<rect key={`${row}-${column}`} x={column + 4} y={row + 4} width="1" height="1" />);
+    }
+  }
+  return <svg className="pairing-qr" viewBox={`0 0 ${size + 8} ${size + 8}`} aria-label="QR-code voor koppelen"><rect width="100%" height="100%" fill="#fff" /><g fill="#071015">{cells}</g></svg>;
+}
+
+function PhonePairing({ pairingToken }: { pairingToken: string }) {
+  const [replacementToken, setReplacementToken] = useState('');
+  const [replaceAccount, setReplaceAccount] = useState(false);
+  const [status, setStatus] = useState<'ready' | 'working' | 'done' | 'error'>('ready');
+  const [message, setMessage] = useState('');
+  const bridgeUrl = initialBridgeUrl();
+
+  const finishPairing = async () => {
+    if (replaceAccount && replacementToken.trim().length < 16) {
+      setStatus('error');
+      setMessage('Dit PlayStation-token lijkt te kort.');
+      return;
+    }
+    setStatus('working');
+    setMessage('Beveiligde koppeling afronden…');
+    try {
+      await completePhonePairing(bridgeUrl, pairingToken, replaceAccount ? replacementToken : '');
+      setReplacementToken('');
+      setStatus('done');
+      setMessage('De Tesla is gekoppeld. Je kunt deze pagina sluiten.');
+    } catch (cause) {
+      setStatus('error');
+      setMessage(cause instanceof Error ? cause.message : 'Koppelen is niet gelukt.');
+    }
+  };
+
+  return (
+    <main className="phone-pair-shell">
+      <section className="phone-pair-card">
+        {/* oxlint-disable-next-line next/no-img-element */}
+        <img src={assetUrl('pylux-mark.png')} alt="Pylux" className="phone-pair-logo" />
+        {status === 'done' ? (
+          <>
+            <span className="phone-success"><Check size={38} /></span>
+            <p className="eyebrow">Koppeling voltooid</p>
+            <h1>Tesla is speelklaar</h1>
+            <p>{message}</p>
+          </>
+        ) : (
+          <>
+            <span className="phone-pair-icon"><Smartphone size={38} /></span>
+            <p className="eyebrow">Pylux voor Tesla</p>
+            <h1>Tesla koppelen</h1>
+            <p>Bevestig de tijdelijke koppeling. Je opgeslagen PlayStation-account blijft veilig op de Pylux Bridge.</p>
+            <label className="replace-account" aria-label="PlayStation-token vervangen"><input type="checkbox" checked={replaceAccount} onChange={(event) => setReplaceAccount(event.target.checked)} /><span><strong>PlayStation-token vervangen</strong><small>Alleen nodig als je opgeslagen account niet meer werkt.</small></span></label>
+            {replaceAccount && <div className="token-field"><input type="password" value={replacementToken} onChange={(event) => setReplacementToken(event.target.value)} placeholder="Nieuwe NPSSO-token" autoComplete="off" /></div>}
+            {message && <p className={status === 'error' ? 'wizard-error' : 'phone-progress'}>{message}</p>}
+            <button className="wizard-primary" onClick={() => void finishPairing()} disabled={status === 'working'}>{status === 'working' ? 'Koppelen…' : 'Tesla veilig koppelen'}</button>
+            <p className="wizard-note">Deze tijdelijke QR-koppeling verloopt automatisch.</p>
+          </>
+        )}
+      </section>
+    </main>
+  );
+}
+
+function TeslaHome() {
   const [sessionState, setSessionState] = useState<SessionState>('idle');
   const [showControls, setShowControls] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -80,6 +159,7 @@ export default function HomePage() {
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [showTouchControls, setShowTouchControls] = useState(false);
   const [rememberToken, setRememberToken] = useState(true);
+  const [pairingChallenge, setPairingChallenge] = useState<PairChallenge | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamPanelRef = useRef<HTMLElement>(null);
   const bridgeRef = useRef<PyluxBridge | null>(null);
@@ -162,11 +242,39 @@ export default function HomePage() {
           setShowLibrary(true);
         },
         onProgress: setProgress,
+        onPairChallenge: (challenge) => {
+          setPairingChallenge(challenge);
+          setProgress('Scan de QR-code met je telefoon.');
+        },
+        onPaired: (code) => {
+          setPairCode(code);
+          setPairingChallenge(null);
+          setWizardStep(3);
+        },
         onError: (message) => {
           setSetupError(message);
           setError(message);
         },
       }), [bridgeUrl]);
+
+  const beginPhonePairing = useCallback(async () => {
+    setSetupError('');
+    setPairingChallenge(null);
+    setProgress('Tijdelijke QR-code maken…');
+    try {
+      bridgeRef.current?.disconnect();
+      const bridge = createBridge();
+      bridgeRef.current = bridge;
+      await bridge.beginPairing();
+    } catch (cause) {
+      setSessionState('error');
+      setSetupError(cause instanceof Error ? cause.message : 'De QR-koppeling kon niet worden gestart.');
+    }
+  }, [createBridge]);
+
+  const pairingUrl = pairingChallenge && typeof window !== 'undefined'
+    ? `${window.location.origin}${isHostedPlayPage() ? '/play/' : '/'}#pair=${pairingChallenge.pairingToken}`
+    : '';
 
   const connectAccount = useCallback(async () => {
     setSetupError('');
@@ -479,13 +587,26 @@ export default function HomePage() {
                 <div><LockKeyhole /><span><strong>Veilig bewaard</strong><small>Alleen toegankelijk voor de Pylux Bridge</small></span></div>
                 <div><Gamepad2 /><span><strong>Geen console nodig</strong><small>Voor Plus Premium-cloudgames</small></span></div>
               </div>
-              <label className="setup-label" htmlFor="saved-pair-code">Koppelcode</label>
-              <div className="token-field">
-                <input id="saved-pair-code" type="password" value={pairCode} onChange={(event) => { setPairCode(event.target.value); setSetupError(''); }} placeholder="Voer je koppelcode in" autoComplete="off" autoCapitalize="none" spellCheck={false} />
-              </div>
+              {pairingChallenge && pairingUrl ? (
+                <div className="pairing-challenge">
+                  <PairingQr value={pairingUrl} />
+                  <div><strong>Scan met je telefoon</strong><span>Open je camera en bevestig de koppeling.</span><code>{pairingChallenge.code}</code><small>Geldig gedurende 5 minuten</small></div>
+                </div>
+              ) : (
+                <>
+                  <button className="wizard-primary pairing-button" onClick={() => void beginPhonePairing()}><QrCode size={24} /> Koppel met telefoon</button>
+                  <details className="manual-pairing">
+                    <summary>Handmatig koppelen</summary>
+                    <label className="setup-label" htmlFor="saved-pair-code">Koppelcode</label>
+                    <div className="token-field">
+                      <input id="saved-pair-code" type="password" value={pairCode} onChange={(event) => { setPairCode(event.target.value); setSetupError(''); }} placeholder="Voer je koppelcode in" autoComplete="off" autoCapitalize="none" spellCheck={false} />
+                    </div>
+                    <button className="wizard-secondary" onClick={() => void connectSavedAccount()}>Opgeslagen account gebruiken</button>
+                  </details>
+                  <button className="wizard-secondary" onClick={() => setWizardStep(2)}>Nieuw token instellen op dit scherm</button>
+                </>
+              )}
               {setupError && <p className="wizard-error">{setupError}</p>}
-              <button className="wizard-primary" onClick={() => void connectSavedAccount()}>Opgeslagen account gebruiken</button>
-              <button className="wizard-secondary" onClick={() => setWizardStep(2)}>Nieuw token instellen</button>
               <p className="wizard-note">Gebruik dit alleen terwijl de auto geparkeerd staat.</p>
             </div>
           )}

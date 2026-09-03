@@ -287,6 +287,32 @@ kbd { min-width: 42px; height: 32px; padding: 0 8px; border: 1px solid rgba(255,
 .wizard-failure { margin: 18px auto 0; padding: 15px; border: 1px solid rgba(255,116,111,.3); border-radius: 14px; background: rgba(255,116,111,.07); }
 .wizard-failure p { margin: 0 0 12px; color: #ffaaa6; font-size: 13px; }
 .wizard-failure button { min-height: 44px; padding: 0 18px; border: 1px solid rgba(255,255,255,.15); border-radius: 11px; background: rgba(255,255,255,.06); cursor: pointer; }
+.pairing-button { display: flex; align-items: center; justify-content: center; gap: 11px; }
+.manual-pairing { margin-top: 12px; padding: 0 15px 15px; text-align: left; border: 1px solid var(--line); border-radius: 17px; background: rgba(255,255,255,.025); }
+.manual-pairing summary { padding: 15px 0; color: var(--muted); cursor: pointer; font-size: 13px; }
+.manual-pairing .wizard-secondary { text-align: center; }
+.pairing-challenge { margin: 10px 0 6px; padding: 18px; display: grid; grid-template-columns: 210px 1fr; align-items: center; gap: 22px; text-align: left; border: 1px solid rgba(24,200,239,.3); border-radius: 22px; background: rgba(24,200,239,.06); }
+.pairing-qr { width: 210px; height: 210px; padding: 6px; border-radius: 14px; background: #fff; image-rendering: pixelated; }
+.pairing-challenge > div { display: flex; flex-direction: column; gap: 7px; }
+.pairing-challenge strong { font-size: 20px; }
+.pairing-challenge span { color: var(--muted); font-size: 14px; line-height: 1.4; }
+.pairing-challenge code { margin: 8px 0 2px; color: var(--cyan); font-size: 26px; font-weight: 780; letter-spacing: 4px; }
+.pairing-challenge small { color: #7f8994; font-size: 11px; }
+
+.phone-pair-shell { min-height: 100vh; padding: 24px; display: grid; place-items: center; background: radial-gradient(circle at 50% 0, rgba(24,200,239,.14), transparent 42%), #080b0f; }
+.phone-pair-card { width: min(480px, 100%); padding: 34px 28px; text-align: center; border: 1px solid var(--line); border-radius: 28px; background: rgba(20,25,31,.98); box-shadow: 0 30px 100px rgba(0,0,0,.55); }
+.phone-pair-logo { width: 58px; height: 58px; margin-bottom: 24px; object-fit: contain; }
+.phone-pair-icon, .phone-success { width: 76px; height: 76px; margin: 0 auto 22px; display: grid; place-items: center; border-radius: 24px; color: var(--cyan); background: var(--cyan-soft); }
+.phone-success { color: #062016; background: var(--green); }
+.phone-pair-card h1 { margin: 12px 0 14px; font-size: 38px; letter-spacing: -1.5px; }
+.phone-pair-card > p:not(.eyebrow):not(.wizard-note):not(.wizard-error):not(.phone-progress) { margin: 0 0 24px; color: #b5bec8; line-height: 1.55; }
+.replace-account { margin: 22px 0 14px; padding: 15px; display: flex; align-items: center; gap: 12px; text-align: left; border: 1px solid var(--line); border-radius: 16px; background: rgba(255,255,255,.025); }
+.replace-account input { width: 21px; height: 21px; flex: 0 0 auto; accent-color: var(--cyan); }
+.replace-account span { display: flex; flex-direction: column; gap: 4px; }
+.replace-account small { color: var(--muted); font-size: 11px; line-height: 1.35; }
+.phone-pair-card .token-field { margin-bottom: 14px; }
+.phone-pair-card .wizard-primary { margin-top: 10px; }
+.phone-progress { margin: 10px 0; color: var(--cyan); font-size: 13px; }
 @keyframes wizard-spin { to { transform: rotate(360deg); } }
 
 @media (max-width: 1300px) {
@@ -328,6 +354,8 @@ kbd { min-width: 42px; height: 32px; padding: 0 8px; border: 1px solid rgba(255,
   .setup-wizard { width: calc(100vw - 24px); min-height: calc(100vh - 24px); }
   .wizard-content { width: auto; padding-inline: 24px; }
   .privacy-points, .advanced-grid { grid-template-columns: 1fr; }
+  .pairing-challenge { grid-template-columns: 1fr; text-align: center; }
+  .pairing-qr { margin: auto; }
   .wizard-content h2 { font-size: 34px; }
   .check-list { width: 100%; }
 }

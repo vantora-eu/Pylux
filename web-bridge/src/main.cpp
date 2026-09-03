@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cctype>
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
@@ -19,6 +20,7 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <thread>
@@ -147,6 +149,22 @@ bool secure_equals(const std::string &left, const std::string &right)
 		difference |= static_cast<unsigned char>(a ^ b);
 	}
 	return difference == 0;
+}
+
+std::string random_hex(size_t bytes)
+{
+	static constexpr char alphabet[] = "0123456789abcdef";
+	std::random_device source;
+	std::uniform_int_distribution<unsigned int> distribution(0, 255);
+	std::string result;
+	result.reserve(bytes * 2);
+	for(size_t i = 0; i < bytes; ++i)
+	{
+		const unsigned int value = distribution(source);
+		result.push_back(alphabet[value >> 4]);
+		result.push_back(alphabet[value & 0x0f]);
+	}
+	return result;
 }
 
 std::vector<std::string> split_csv(const std::string &value)
@@ -341,17 +359,6 @@ public:
 private:
 	void accept_client(std::shared_ptr<rtc::WebSocket> socket)
 	{
-		{
-			std::lock_guard<std::mutex> lock(client_mutex_);
-			if(socket_ && socket_->isOpen())
-			{
-				socket->send(json{{"type", "error"}, {"message", "Another browser session is active"}}.dump());
-				socket->close();
-				return;
-			}
-			socket_ = socket;
-		}
-
 		std::cout << "Browser connected from " << socket->remoteAddress().value_or("unknown") << std::endl;
 		socket->onMessage(nullptr, [this, weak = std::weak_ptr<rtc::WebSocket>(socket)](std::string message) {
 			if(auto current = weak.lock())
@@ -381,14 +388,74 @@ private:
 		});
 	}
 
+	bool claim_primary(const std::shared_ptr<rtc::WebSocket> &socket)
+	{
+		std::lock_guard<std::mutex> lock(client_mutex_);
+		if(socket_ && socket_ != socket && socket_->isOpen())
+		{
+			socket->send(json{{"type", "error"}, {"message", "Another browser session is active"}}.dump());
+			socket->close();
+			return false;
+		}
+		socket_ = socket;
+		return true;
+	}
+
 	void handle_signaling(const std::shared_ptr<rtc::WebSocket> &socket, const std::string &raw)
 	{
 		try
 		{
 			const json message = json::parse(raw);
 			const std::string type = message.value("type", "");
-			if(type == "configure" || type == "catalog" || type == "start")
+			if(type == "pair_begin")
 			{
+				if(!claim_primary(socket))
+					return;
+				const std::string token = random_hex(24);
+				std::string code = token.substr(0, 4) + "-" + token.substr(4, 2);
+				std::transform(code.begin(), code.end(), code.begin(), [](unsigned char value) {
+					return static_cast<char>(std::toupper(value));
+				});
+				{
+					std::lock_guard<std::mutex> lock(pairing_mutex_);
+					pairing_token_ = token;
+					pairing_expires_ = steady_clock::now() + minutes(5);
+				}
+				socket->send(json{{"type", "pair_challenge"}, {"pairingToken", token}, {"code", code}, {"expiresIn", 300}}.dump());
+			}
+			else if(type == "pair_complete")
+			{
+				const std::string token = message.value("pairingToken", "");
+				{
+					std::lock_guard<std::mutex> lock(pairing_mutex_);
+					if(pairing_token_.empty() || steady_clock::now() > pairing_expires_
+						|| !secure_equals(token, pairing_token_))
+						throw std::runtime_error("Pairing request is invalid or expired");
+					pairing_token_.clear();
+				}
+				const std::string replacement = message.value("npsso", "");
+				if(!replacement.empty())
+				{
+					if(replacement.size() < 16 || replacement.size() > 4096)
+						throw std::runtime_error("NPSSO token has an invalid length");
+					store_secure_npsso(replacement);
+					config_.npsso = replacement;
+				}
+				std::shared_ptr<rtc::WebSocket> primary;
+				{
+					std::lock_guard<std::mutex> lock(client_mutex_);
+					primary = socket_;
+				}
+				if(!primary || !primary->isOpen())
+					throw std::runtime_error("Tesla browser is no longer waiting for pairing");
+				primary->send(json{{"type", "paired"}, {"pairCode", config_.pair_code}}.dump());
+				socket->send(json{{"type", "pair_complete"}, {"success", true}}.dump());
+				socket->close();
+			}
+			else if(type == "configure" || type == "catalog" || type == "start")
+			{
+				if(!claim_primary(socket))
+					return;
 				if(!secure_equals(message.value("pairCode", ""), config_.pair_code))
 				{
 					socket->send(json{{"type", "error"}, {"message", "Invalid pairing code"}}.dump());
@@ -424,6 +491,8 @@ private:
 			}
 			else if(type == "answer")
 			{
+				if(!claim_primary(socket))
+					return;
 				auto peer = current_peer();
 				if(!peer)
 					throw std::runtime_error("No stream offer is active");
@@ -432,6 +501,8 @@ private:
 			}
 			else if(type == "ice")
 			{
+				if(!claim_primary(socket))
+					return;
 				auto peer = current_peer();
 				if(!peer)
 					return;
@@ -442,6 +513,8 @@ private:
 			}
 			else if(type == "stop")
 			{
+				if(!claim_primary(socket))
+					return;
 				stop_cloud_session();
 				send_signal(json{{"type", "state"}, {"state", "idle"}});
 			}
@@ -951,6 +1024,9 @@ private:
 	std::atomic<bool> media_announced_{false};
 	std::atomic<bool> active_hevc_{false};
 	std::mutex client_mutex_;
+	std::mutex pairing_mutex_;
+	std::string pairing_token_;
+	steady_clock::time_point pairing_expires_{};
 	std::mutex session_mutex_;
 	std::mutex media_mutex_;
 	std::mutex catalog_mutex_;
